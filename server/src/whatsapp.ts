@@ -156,7 +156,7 @@ export async function connect(): Promise<void> {
 async function handleConnectionUpdate(s: WASocket, u: Partial<ConnectionState>) {
   if (s !== sock) return;
   if (u.qr) {
-    qrDataUrl = await QRCode.toDataURL(u.qr, { margin: 1, width: 320 });
+    qrDataUrl = await QRCode.toDataURL(u.qr, { margin: 2, width: 640 });
     setStatus('qr');
     bus.publish({ type: 'wa.qr', qr: qrDataUrl });
   }
@@ -331,8 +331,8 @@ async function drainOutbox() {
         rp.id, msgId, item.body, now(),
       );
       try {
-        // "digitando..." proporcional ao tamanho (reenvia a cada ~8s, presença expira em ~10s)
-        const typingMs = Math.min(2000 + item.body.length * 45, 15_000);
+        // "digitando..." por 5s antes de cada balão, pra não sair tudo de uma vez.
+        const typingMs = 5000;
         for (let t = 0; t < typingMs; t += 8000) {
           await sock.sendPresenceUpdate('composing', jid);
           await sleep(Math.min(8000, typingMs - t));

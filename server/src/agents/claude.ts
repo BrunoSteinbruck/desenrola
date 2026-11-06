@@ -1,13 +1,23 @@
 // Cliente Claude + regras comuns a todos os funcionários.
-// - modelo claude-opus-5-5, thinking adaptativo (omitido), effort explícito por agente
-// - tools sempre strict + tool_choice auto (any/tool dão 400 nesse modelo)
+// - modelo por agente (MODELS), thinking adaptativo (omitido), effort explícito por agente
+// - tools sempre strict + tool_choice auto (any/tool dão 400 nesses modelos)
 // - histórico append-only: o content do assistente é guardado intacto (thinking incluído)
+// - Sonnet usa o fallback do servidor ("default"): se recusar por engano, outro modelo responde
 import Anthropic from '@anthropic-ai/sdk';
 import type {
   ContentBlock, Message, MessageParam, ToolUnion, ToolUseBlock, ToolResultBlockParam,
 } from '@anthropic-ai/sdk/resources/messages/messages';
 
-export const MODEL = 'claude-opus-5-5';
+export type ModelId = 'claude-sonnet-5-5' | 'claude-haiku-5-5' | 'claude-opus-5-5';
+
+/** Qual modelo cada funcionário usa. Diagnóstico e busca precisam de mais conhecimento; conversa é Haiku. */
+export const MODELS = {
+  diagnostico: 'claude-sonnet-5-5',
+  busca: 'claude-sonnet-5-5',
+  negociador: 'claude-haiku-5-5',
+  relator: 'claude-haiku-5-5',
+  geo: 'claude-haiku-5-5',
+} as const satisfies Record<string, ModelId>;
 
 export type Effort = 'low' | 'medium';
 export type History = MessageParam[];
@@ -43,7 +53,43 @@ export function friendlyError(err: unknown): string {
 export const MISSING_KEY_MSG =
   'Não consigo pensar sem a chave da Anthropic: falta configurar ANTHROPIC_API_KEY no arquivo .env. Coloca a chave e reinicia o servidor.';
 
+// ---------- consumo ----------
+/** US$ por milhão de tokens (Haiku: preço até 100 mil tokens por chamada); busca na web: US$ 10 a cada mil. */
+const PRICES: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
+  'claude-opus-5-5': { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 },
+  'claude-sonnet-5-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
+  'claude-haiku-5-5': { input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01 },
+};
+const SEARCH_USD = 0.01;
+export interface UsageEvent { at: string; model: string; input: number; output: number; cacheWrite: number; cacheRead: number; searches: number; usd: number }
+export const usageEvents: UsageEvent[] = [];
+
+function recordUsage(m: Message, requested: ModelId) {
+  const u = m.usage;
+  // o modelo que respondeu (pode ser outro se houve fallback)
+  const model = PRICES[m.model] ? m.model : requested;
+  const PRICE = PRICES[model];
+  const ev: UsageEvent = {
+    at: new Date().toISOString(),
+    model,
+    input: u.input_tokens ?? 0,
+    output: u.output_tokens ?? 0,
+    cacheWrite: u.cache_creation_input_tokens ?? 0,
+    cacheRead: u.cache_read_input_tokens ?? 0,
+    searches: u.server_tool_use?.web_search_requests ?? 0,
+    usd: 0,
+  };
+  ev.usd =
+    (ev.input * PRICE.input + ev.output * PRICE.output + ev.cacheWrite * PRICE.cacheWrite + ev.cacheRead * PRICE.cacheRead) / 1e6 +
+    ev.searches * SEARCH_USD;
+  usageEvents.push(ev);
+  console.log(
+    `[claude] ${model.replace('claude-', '')} tokens entrada=${ev.input} saída=${ev.output} cache=${ev.cacheRead}/${ev.cacheWrite} buscas=${ev.searches} ≈ US$ ${ev.usd.toFixed(4)}`,
+  );
+}
+
 export interface TurnOptions {
+  model: ModelId;
   system: string;
   tools?: ToolUnion[];
   messages: History;
@@ -68,16 +114,30 @@ export async function runTurn(opts: TurnOptions): Promise<TurnResult> {
   if (!hasClaude()) throw new AgentError(MISSING_KEY_MSG);
   const appended: MessageParam[] = [];
   for (let i = 0; i < 5; i++) {
-    const stream = getClient().messages.stream({
-      model: MODEL,
+    const params = {
+      model: opts.model,
       max_tokens: opts.maxTokens,
       system: opts.system,
       messages: [...opts.messages, ...appended],
       ...(opts.tools?.length ? { tools: opts.tools, tool_choice: { type: 'auto' as const } } : {}),
       output_config: { effort: opts.effort, ...(opts.format ? { format: opts.format } : {}) },
-    });
-    if (opts.onText) stream.on('text', (delta) => opts.onText!(delta));
-    const message = await stream.finalMessage();
+    };
+    const onText = (delta: string) => opts.onText?.(delta);
+    let message: Message;
+    if (opts.model === 'claude-sonnet-5-5') {
+      const s = getClient().beta.messages.stream({
+        ...params,
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
+      } as Anthropic.Beta.Messages.MessageCreateParamsStreaming);
+      if (opts.onText) s.on('text', onText);
+      message = (await s.finalMessage()) as unknown as Message;
+    } else {
+      const s = getClient().messages.stream(params);
+      if (opts.onText) s.on('text', onText);
+      message = await s.finalMessage();
+    }
+    recordUsage(message, opts.model);
 
     if (message.stop_reason === 'refusal') {
       console.warn('[claude] refusal', message.stop_details ?? '');

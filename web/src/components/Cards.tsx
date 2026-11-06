@@ -1,17 +1,22 @@
 import { useState } from 'react';
-import { api, brl, ApiError, PROVIDER_STATUS_LABEL, type Card, type RequestDetail, type RequestProvider, type WaState } from '../api';
+import { api, brl, phoneFromJid, ApiError, PROVIDER_STATUS_LABEL, type Card, type RequestDetail, type RequestProvider, type WaState } from '../api';
 import { IconStar } from './ui';
 
 type Ctx = {
   detail: RequestDetail;
   wa: WaState;
+  paymentsOn: boolean;
   isLatest: (kind: Card['kind']) => boolean;
   onError: (msg: string) => void;
 };
 
 const rating = (p: RequestProvider) =>
-  p.rating_google != null
-    ? `${p.rating_google.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}${p.reviews_google ? ` · ${p.reviews_google} avaliações` : ''}`
+  p.our_rating_avg != null
+    ? `${p.our_rating_avg.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} no Resolvedor`
+    : p.rating_google != null
+    ? `${p.rating_google.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}${
+        p.reviews_google ? ` · ${p.reviews_google} ${p.reviews_google === 1 ? 'avaliação' : 'avaliações'}` : ''
+      }`
     : 'Sem nota no Google';
 
 function useAction(onError: (m: string) => void) {
@@ -73,7 +78,8 @@ function DiagnosticoCard({ card, ctx }: { card: Extract<Card, { kind: 'diagnosti
 function ProvidersCard({ ctx }: { ctx: Ctx }) {
   const { busy, run } = useAction(ctx.onError);
   const { request, providers } = ctx.detail;
-  const editable = request.status === 'escolhendo';
+  // em 'pagamento' também dá pra chamar de novo (no modo grátis isso pula o Pix pendente)
+  const editable = request.status === 'escolhendo' || (request.status === 'pagamento' && !ctx.paymentsOn);
   const list = providers.filter((p) => p.status !== 'sem_whatsapp' || editable);
   const selected = providers.filter((p) => p.selected).length;
   if (!list.length) return null;
@@ -111,7 +117,7 @@ function ProvidersCard({ ctx }: { ctx: Ctx }) {
 export function WhatsappPanel({ wa, onError }: { wa: WaState; onError: (m: string) => void }) {
   const { busy, run } = useAction(onError);
   if (wa.status === 'conectado') {
-    return <p className="msg-event">WhatsApp conectado{wa.me ? ` · ${wa.me}` : ''}</p>;
+    return <p className="msg-event">WhatsApp conectado{wa.me ? ` · ${phoneFromJid(wa.me)}` : ''}</p>;
   }
   if (wa.status === 'qr' && wa.qr) {
     return (
@@ -162,6 +168,8 @@ function PaymentCard({ ctx }: { ctx: Ctx }) {
   const [copied, setCopied] = useState(false);
   const p = ctx.detail.payment;
   if (!p) return null;
+  // modo grátis: cobranças antigas não aparecem mais
+  if (!ctx.paymentsOn && p.status !== 'approved') return null;
   if (p.status === 'approved' || p.status === 'pago') {
     return <p className="msg-event">Pix de {brl(p.amount_cents)} confirmado.</p>;
   }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { api, subscribe, STATUS_LABEL, type Message, type RequestDetail, type RequestSummary, type StreamEvent, type WaState } from './api';
+import { api, subscribe, STATUS_LABEL, type Message, type RequestDetail, type RequestSummary, type Settings as SettingsData, type StreamEvent, type WaState } from './api';
 import { Conversation } from './components/Conversation';
+import { Onboarding } from './components/Onboarding';
 import { WhatsappPanel } from './components/Cards';
 import { Composer, IconGear, IconMenu, IconPlus } from './components/ui';
 
@@ -19,6 +20,8 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [noKey, setNoKey] = useState(false);
+  const [paymentsOn, setPaymentsOn] = useState(false);
+  const [settings, setSettings] = useState<SettingsData | null>(null);
   const [panel, setPanel] = useState<'whatsapp' | 'settings' | null>(null);
   const currentRef = useRef(currentId);
   currentRef.current = currentId;
@@ -57,7 +60,14 @@ export function App() {
   useEffect(() => {
     void loadList();
     api.whatsapp().then(setWa).catch(() => {});
-    api.health().then((h) => setNoKey(!h.claude)).catch(() => {});
+    api
+      .health()
+      .then((h) => {
+        setNoKey(!h.claude);
+        setPaymentsOn(!!h.payments);
+      })
+      .catch(() => {});
+    api.getSettings().then(setSettings).catch(() => {});
   }, [loadList]);
 
   // Tempo real
@@ -167,7 +177,12 @@ export function App() {
         </nav>
 
         <main className="main">
-          {currentId == null ? (
+          {currentId == null && settings && !settings.onboarding_done ? (
+            <Onboarding
+              initial={{ user_name: settings.user_name, user_city: settings.user_city, user_neighborhood: settings.user_neighborhood }}
+              onDone={() => api.getSettings().then(setSettings).catch(() => setSettings({ ...settings, onboarding_done: true }))}
+            />
+          ) : currentId == null ? (
             <section className="home">
               <h1>Qual problema você quer resolver hoje?</h1>
               <Composer
@@ -181,11 +196,13 @@ export function App() {
               <p className="hint">
                 {noKey
                   ? 'Falta a ANTHROPIC_API_KEY no arquivo .env — sem ela eu não consigo responder.'
-                  : 'O diagnóstico é grátis. Você só paga quando eu chamar os profissionais.'}
+                  : paymentsOn
+                    ? 'O diagnóstico é grátis. Você só paga quando eu chamar os profissionais.'
+                    : 'Eu falo com os profissionais por ti e te trago os orçamentos.'}
               </p>
             </section>
           ) : detail ? (
-            <Conversation detail={detail} streaming={streaming} wa={wa} waiting={waiting} onError={showError} />
+            <Conversation detail={detail} streaming={streaming} wa={wa} waiting={waiting} paymentsOn={paymentsOn} onError={showError} />
           ) : null}
         </main>
       </div>
@@ -204,7 +221,15 @@ export function App() {
           )}
         </Dialog>
       )}
-      {panel === 'settings' && <Settings onClose={() => setPanel(null)} onError={showError} />}
+      {panel === 'settings' && (
+        <Settings
+          onClose={() => {
+            setPanel(null);
+            api.getSettings().then(setSettings).catch(() => {});
+          }}
+          onError={showError}
+        />
+      )}
 
       {toast && (
         <div role="status" className="glass" style={{ position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 20, padding: '10px 18px', borderRadius: 999, fontSize: 14 }}>
@@ -239,7 +264,10 @@ function Dialog({ title, onClose, children }: { title: string; onClose: () => vo
 function Settings({ onClose, onError }: { onClose: () => void; onError: (m: string) => void }) {
   const [s, setS] = useState<Record<string, string>>({});
   useEffect(() => {
-    api.getSettings().then(setS).catch(() => {});
+    api
+      .getSettings()
+      .then((d) => setS({ user_name: d.user_name, user_city: d.user_city, user_neighborhood: d.user_neighborhood, user_email: d.user_email }))
+      .catch(() => {});
   }, []);
   const field = (key: string, label: string, type = 'text', placeholder = '') => (
     <label className="field">
@@ -250,14 +278,22 @@ function Settings({ onClose, onError }: { onClose: () => void; onError: (m: stri
   return (
     <Dialog title="Configurações" onClose={onClose}>
       {field('user_name', 'Teu nome (eu me apresento como teu assistente)', 'text', 'Bruno')}
-      {field('user_city', 'Cidade', 'text', 'Porto Alegre')}
+      <div className="field-row">
+        {field('user_city', 'Cidade', 'text', 'Porto Alegre')}
+        {field('user_neighborhood', 'Bairro', 'text', 'Bom Fim')}
+      </div>
       {field('user_email', 'E-mail (exigido pelo Pix)', 'email')}
       <button
         type="button"
         className="btn dark"
         onClick={() =>
           api
-            .putSettings({ user_name: s.user_name ?? '', user_city: s.user_city ?? '', user_email: s.user_email ?? '' })
+            .putSettings({
+              user_name: s.user_name ?? '',
+              user_city: s.user_city ?? '',
+              user_neighborhood: s.user_neighborhood ?? '',
+              user_email: s.user_email ?? '',
+            })
             .then(onClose)
             .catch(() => onError('Não consegui salvar.'))
         }

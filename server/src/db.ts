@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { bus } from './events.ts';
 import { formatBR } from './services/phone.ts';
+import { shortTitle } from './lib/title.ts';
 
 export const DATA_DIR = resolve(process.cwd(), 'data');
 mkdirSync(DATA_DIR, { recursive: true });
@@ -98,7 +99,50 @@ CREATE TABLE IF NOT EXISTS ratings (
   stars INTEGER NOT NULL, comment TEXT, service_done INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
+
+-- Banco próprio: em que profissão/cidade/bairro cada prestador já apareceu numa busca.
+-- Com o uso, a busca passa a vir primeiro daqui (ver agents/buscador.ts).
+CREATE TABLE IF NOT EXISTS provider_areas (
+  provider_id INTEGER NOT NULL REFERENCES providers(id),
+  category_key TEXT NOT NULL,
+  category TEXT NOT NULL,
+  city_key TEXT NOT NULL,
+  city TEXT NOT NULL,
+  neighborhood TEXT,
+  times_found INTEGER NOT NULL DEFAULT 1,
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  PRIMARY KEY (provider_id, category_key, city_key)
+);
+CREATE INDEX IF NOT EXISTS provider_areas_lookup ON provider_areas (category_key, city_key);
 `);
+
+/** Chave pra comparar profissão/cidade: minúsculo, sem acento, espaços normalizados. */
+export function areaKey(s: string | null | undefined): string {
+  return (s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Prestadores achados antes de existir provider_areas: entram no banco próprio a partir dos pedidos antigos.
+{
+  const old = db
+    .prepare(
+      `SELECT DISTINCT rp.provider_id, r.category, r.city, r.neighborhood, r.created_at
+         FROM request_providers rp JOIN requests r ON r.id = rp.request_id JOIN providers p ON p.id = rp.provider_id
+        WHERE r.category IS NOT NULL AND r.city IS NOT NULL AND p.source != 'teste'
+          AND NOT EXISTS (SELECT 1 FROM provider_areas a WHERE a.provider_id = rp.provider_id)`,
+    )
+    .all() as Array<{ provider_id: number; category: string; city: string; neighborhood: string | null; created_at: string }>;
+  const ins = db.prepare(
+    `INSERT OR IGNORE INTO provider_areas (provider_id, category_key, category, city_key, city, neighborhood, first_seen_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const o of old) ins.run(o.provider_id, areaKey(o.category), o.category, areaKey(o.city), o.city, o.neighborhood, o.created_at, o.created_at);
+}
 
 // ---------- helpers ----------
 type Row = Record<string, any>;
@@ -119,6 +163,8 @@ const SETTING_DEFAULTS: Record<string, string> = {
   user_name: '',
   user_email: '',
   user_city: 'Porto Alegre',
+  user_neighborhood: '',
+  onboarding_done: '0',
   price_per_request: '15.00',
   credits: '0',
   wa_warning_seen: '0',
@@ -135,6 +181,8 @@ export function publicSettings() {
     user_name: getSetting('user_name'),
     user_email: getSetting('user_email'),
     user_city: getSetting('user_city'),
+    user_neighborhood: getSetting('user_neighborhood'),
+    onboarding_done: getSetting('onboarding_done') === '1',
     price_per_request: Number(getSetting('price_per_request')) || 0,
     credits: Number(getSetting('credits')) || 0,
     wa_warning_seen: getSetting('wa_warning_seen') === '1',
@@ -259,7 +307,7 @@ export function listRequestsView() {
      FROM requests r ORDER BY r.updated_at DESC, r.id DESC`,
   ).map((r) => ({
     id: r.id,
-    title: r.title || (r.first_msg ? String(r.first_msg).slice(0, 60) : null),
+    title: r.title || shortTitle(r.first_msg ? String(r.first_msg) : null),
     status: r.status,
     updated_at: r.updated_at,
   }));
@@ -275,7 +323,7 @@ export function paymentView(p: Row | undefined) {
 
 export function providersView(requestId: number) {
   return all<Row>(
-    `SELECT rp.*, p.name, p.phone_e164, p.rating_google, p.reviews_google, p.address
+    `SELECT rp.*, p.name, p.phone_e164, p.rating_google, p.reviews_google, p.address, p.our_rating_avg, p.our_rating_count
      FROM request_providers rp JOIN providers p ON p.id = rp.provider_id
      WHERE rp.request_id = ? ORDER BY rp.position, rp.id`,
     requestId,
@@ -286,6 +334,8 @@ export function providersView(requestId: number) {
     phone_display: r.phone_e164 ? formatBR(r.phone_e164) : null,
     rating_google: r.rating_google ?? null,
     reviews_google: r.reviews_google ?? null,
+    our_rating_avg: r.our_rating_count > 0 ? r.our_rating_avg : null,
+    our_rating_count: r.our_rating_count ?? 0,
     address: r.address ?? null,
     selected: !!r.selected,
     status: r.status,
@@ -304,7 +354,7 @@ export function requestView(id: number) {
   return {
     request: {
       id: r.id,
-      title: r.title || (firstMsg ? firstMsg.content.slice(0, 60) : null),
+      title: r.title || shortTitle(firstMsg?.content),
       status: r.status,
       summary: r.summary,
       category: r.category,

@@ -7,17 +7,28 @@ import {
 import { withLock } from '../lib/lock.ts';
 import { hhmmBR, nowBR, parseLocalDate } from '../lib/time.ts';
 import { enqueue, nextStaggerDelay } from '../whatsapp.ts';
-import { friendlyError, runLoop, strictTool, toolInput, type History } from './claude.ts';
+import { friendlyError, runLoop, strictTool, toolInput, type History , MODELS } from './claude.ts';
 import { closeDeal, onQuote } from './relator.ts';
 
 // constantes: byte-idênticas em toda a conversa
-const SYSTEM = `Tu é um assistente virtual que conversa pelo WhatsApp com um prestador de serviço em nome de um cliente, pra conseguir orçamento e disponibilidade.
+const SYSTEM = `Tu escreve pelo WhatsApp do cliente, pra um prestador de serviço, pra conseguir orçamento e disponibilidade. Pro prestador, quem está falando é o próprio cliente: escreve em primeira pessoa, como ele.
 
-Como funciona a conversa:
-- Cada texto que tu escrever é enviado como mensagem de WhatsApp pro prestador. Escreve como uma pessoa escreveria no WhatsApp: curto, natural, educado, português do Brasil, sem markdown, sem listas, sem emoji em excesso. Se não houver nada útil pra dizer ao prestador, não escreve texto nenhum.
-- Mensagens que chegam marcadas com [prestador] são do prestador. [usuário] é o cliente falando contigo pelo app (não é visto pelo prestador). [evento] é aviso do app.
-- Na primeira mensagem, te apresenta como assistente do cliente (pelo primeiro nome), descreve o problema em poucas palavras e pergunta valor (ou faixa de valor/visita) e disponibilidade.
-- Se perguntarem, admite com naturalidade que é um assistente virtual.
+Como escrever:
+- Cada linha "---" separa um balão de WhatsApp. Manda como uma pessoa manda no WhatsApp: vários balões curtos, um assunto por balão, nunca um textão. Uma ou duas frases por balão no máximo.
+- Copia o jeito de escrever do cliente (os exemplos vêm no contexto): mesmo nível de informalidade, mesmas abreviações, "tu" ou "você" como ele usa. Sem markdown, sem listas, sem emoji se ele não usa.
+- Se o cliente escreve tudo em minúsculo e sem acento, tu também escreve assim, inclusive o "oi".
+- A casa do cliente é "aqui" ("tu vem aqui?", "passar aqui em casa"); o lugar do prestador é "aí" ("levo aí?"). Fala sempre em primeira pessoa: "levo", "moro", "consigo".
+- Pro prestador tu É o cliente. Nunca fala em "cliente", "app", "aprovado", "vou repassar" ou "vou confirmar com alguém": quem decide é tu mesmo ("deixa eu ver aqui e já te falo", "fechado, pode ser").
+- Não te apresenta como assistente nem fala de app, sistema ou robô. Se o prestador perguntar diretamente se é robô ou mensagem automática, não mente nem nega: diz com naturalidade que é a conta do próprio cliente e que ele tá usando um assistente pra ajudar a responder e organizar os orçamentos (ex.: "é o bruno sim, to usando um assistente pra me ajudar a organizar os orçamentos").
+- Não inventa nada que o cliente não disse: prazo, pressa, horário, orçamento máximo. Se o prestador perguntar, usa pedir_decisao_usuario.
+- Se não houver nada útil pra dizer ao prestador, não escreve texto nenhum.
+- Mensagens marcadas com [prestador] são do prestador. [usuário] é o cliente falando contigo pelo app (o prestador não vê). [evento] é aviso do app.
+
+Primeira mensagem (balões separados por ---):
+1. Cumprimento + onde mora (bairro e cidade). Ex.: "Oi, tudo bem? Moro aqui na Cidade Baixa, em Porto Alegre"
+2. O problema contado com as palavras do próprio cliente, em primeira pessoa, com o diagnóstico provável entre parênteses. Ex.: "Meu liquidificador começou a falhar no meio do uso. A pecinha de plástico que liga o motor ao copo (provavelmente o acoplamento) tá gasta e parece que despedaçou"
+3. Pergunta se faz esse serviço. Ex.: "Tu faz esse tipo de conserto?"
+4. Valor e como funciona. Ex.: "Se sim, mais ou menos quanto fica e como funciona? Levo aí ou tu atende em casa?"
 
 Ferramentas:
 - registrar_orcamento: quando o prestador passar um valor (mesmo que seja só da visita ou uma faixa). Registra de novo se o valor mudar.
@@ -129,29 +140,82 @@ export function resume(rpId: number) {
 }
 
 // ---------- primeira mensagem ----------
+/** Exemplos de como o cliente escreve: o que ele digitou no site e o que mandou à mão pros prestadores. */
+function writingSamples(): string[] {
+  const site = all<{ content: string }>("SELECT content FROM messages WHERE role = 'user' ORDER BY id DESC LIMIT 15");
+  const manual = all<{ body: string }>(
+    `SELECT w.body FROM wa_messages w
+      WHERE w.direction = 'out' AND w.body IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.wa_message_id = w.wa_message_id)
+      ORDER BY w.id DESC LIMIT 15`,
+  );
+  return [...site.map((r) => r.content), ...manual.map((r) => r.body)]
+    .map((s) => s.trim())
+    .filter((s) => s && s.length <= 400);
+}
+
+function firstMessageContext(rp: RpRow): string {
+  const req = getRequest(rp.request_id)!;
+  const prov = getProvider(rp.provider_id)!;
+  const userMsgs = all<{ content: string }>(
+    "SELECT content FROM messages WHERE request_id = ? AND role = 'user' ORDER BY id",
+    rp.request_id,
+  ).map((m) => m.content);
+  const samples = writingSamples();
+  return (
+    `Contexto (do app, não do prestador):\n` +
+    `- Prestador: ${prov.name}\n` +
+    `- Serviço: ${req.category}\n` +
+    `- Bairro: ${req.neighborhood ?? '-'}, ${req.city ?? ''}\n` +
+    `- Diagnóstico do app: ${req.summary}\n` +
+    `- Agora: ${nowBR()}\n\n` +
+    `O que o cliente escreveu sobre o problema (usa as palavras dele):\n${userMsgs.map((m) => `> ${m}`).join('\n')}\n\n` +
+    (samples.length ? `Exemplos de como o cliente escreve:\n${samples.map((m) => `> ${m}`).join('\n')}\n\n` : '') +
+    `Escreve agora a primeira mensagem pro prestador, em balões separados por ---.`
+  );
+}
+
+/** Gera a primeira mensagem sem enviar nem gravar nada (pra testar o texto). */
+export async function draftFirstMessage(rpId: number): Promise<string[]> {
+  const rp = getRp(rpId);
+  if (!rp) return [];
+  const res = await runLoop({
+    model: MODELS.negociador,
+    system: SYSTEM,
+    tools: TOOLS,
+    history: [{ role: 'user', content: firstMessageContext(rp) }],
+    effort: 'medium',
+    maxTokens: 16000,
+    maxIters: 1,
+    handleTool: async () => ({ content: 'Simulação: ferramenta não executada.' }),
+  });
+  return splitBubbles(res.texts.join('\n\n'));
+}
+
 export function startNegotiation(rpId: number): Promise<void> {
   return withLock(`f5:${rpId}`, async () => {
     const rp = getRp(rpId);
     if (!rp) return;
     const history = JSON.parse(rp.agent_messages_json) as History;
     if (history.length) return; // já começou
-    const req = getRequest(rp.request_id)!;
-    const prov = getProvider(rp.provider_id)!;
-    const firstName = (getSetting('user_name') || '').trim().split(/\s+/)[0] || '';
-    let urg = '';
-    try { urg = JSON.parse(req.details_json ?? '{}').urgencia ?? ''; } catch { /* ok */ }
-    const ctx =
-      `Contexto (do app, não do prestador):\n` +
-      `- Cliente: ${firstName || '(sem nome; diga só "um cliente")'}\n` +
-      `- Prestador: ${prov.name}\n` +
-      `- Serviço: ${req.category}\n` +
-      `- Problema: ${req.summary}\n` +
-      `- Bairro: ${req.neighborhood ?? '-'}, ${req.city ?? ''}\n` +
-      `- Urgência: ${urg || 'não informada'}\n` +
-      `- Agora: ${nowBR()}\n\n` +
-      `Escreve agora a primeira mensagem pro prestador.`;
-    await runAndSend(rp, [...history, { role: 'user', content: ctx }], true);
+    await runAndSend(rp, [...history, { role: 'user', content: firstMessageContext(rp) }], true);
   });
+}
+
+/** Separa o texto do modelo em balões de WhatsApp ("---" ou linha em branco). */
+export function splitBubbles(text: string): string[] {
+  return text
+    .split('\n')
+    .reduce<string[][]>(
+      (acc, line) => {
+        if (/^\s*-{3,}\s*$/.test(line) || !line.trim()) acc.push([]);
+        else acc[acc.length - 1].push(line.trim());
+        return acc;
+      },
+      [[]],
+    )
+    .map((lines) => lines.join('\n').trim())
+    .filter(Boolean);
 }
 
 // ---------- turno ----------
@@ -197,6 +261,7 @@ async function runAndSend(rp: RpRow, messages: History, first: boolean): Promise
   const rpId = rp.id;
   try {
     const res = await runLoop({
+    model: MODELS.negociador,
       system: SYSTEM,
       tools: TOOLS,
       history: messages,
@@ -207,9 +272,11 @@ async function runAndSend(rp: RpRow, messages: History, first: boolean): Promise
     });
     updateRp(rpId, { agent_messages_json: JSON.stringify(res.history) });
     const cur = getRp(rpId)!;
-    const text = res.texts.join('\n\n').trim();
-    if (text && cur.status !== 'pausado') {
-      enqueue(rpId, text, first ? nextStaggerDelay() : 1500 + Math.random() * 2500);
+    const bubbles = splitBubbles(res.texts.join('\n\n'));
+    if (bubbles.length && cur.status !== 'pausado') {
+      // um balão por item da fila; a fila manda em ordem, com "digitando…" antes de cada um
+      const start = first ? nextStaggerDelay() : 1500 + Math.random() * 2500;
+      bubbles.forEach((b, i) => enqueue(rpId, b, start + i * 50));
     }
     return true;
   } catch (err) {
@@ -236,13 +303,13 @@ async function handleTool(rpId: number, b: ToolUseBlock): Promise<{ content: str
         last_activity_at: now(),
       });
       onQuote(rpId);
-      return { content: 'Orçamento registrado e mostrado ao cliente no app. Diz ao prestador que vai passar pro cliente e retorna em breve. Não fecha nada ainda.' };
+      return { content: 'Orçamento registrado e mostrado ao cliente no app. Responde ao prestador em primeira pessoa algo curto como "beleza, vou ver aqui e já te falo". Não fecha nada ainda e não fala em cliente.' };
     }
     case 'pedir_decisao_usuario': {
       const i = toolInput<{ pergunta: string }>(b);
       if (!['aprovado', 'fechado', 'orcou'].includes(rp.status)) updateRp(rpId, { status: 'respondeu' });
       postMessage(rp.request_id, 'assistant', `${prov.name} perguntou: ${i.pergunta}`, { kind: 'decision', rpId, pergunta: i.pergunta });
-      return { content: 'Pergunta encaminhada ao cliente; aguardando a resposta, que vai chegar como [usuário]. Se fizer sentido, avisa o prestador que vai confirmar e retorna.' };
+      return { content: 'Pergunta encaminhada ao cliente; a resposta vai chegar como [usuário]. Se fizer sentido, diz ao prestador em primeira pessoa algo como "deixa eu ver aqui e já te falo", sem falar em cliente.' };
     }
     case 'marcar_sem_interesse': {
       const i = toolInput<{ motivo: string }>(b);
@@ -256,7 +323,7 @@ async function handleTool(rpId: number, b: ToolUseBlock): Promise<{ content: str
         return { content: 'Não pode fechar: o cliente ainda não aprovou esse orçamento no app. Usa pedir_decisao_usuario ou espera o [evento] de aprovação.', isError: true };
       }
       closeDeal(rpId, parseLocalDate(i.data_servico ?? ''));
-      return { content: 'Fechamento registrado. Confirma com o prestador o combinado (dia/horário) e agradece.' };
+      return { content: 'Fechamento registrado. Confirma com o prestador o combinado (dia/horário) e agradece, curto e em primeira pessoa.' };
     }
   }
   return { content: 'Ferramenta desconhecida.', isError: true };

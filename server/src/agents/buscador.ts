@@ -1,65 +1,82 @@
 // F2 — Buscador: acha prestadores (Google Places ou busca web do Claude), ranqueia e valida WhatsApp.
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages/messages';
 import {
-  all, get, getRequest, postMessage, run, setRequestStatus, type ProviderRow,
+  all, areaKey, get, getRequest, now, postMessage, run, setRequestStatus, type ProviderRow,
 } from '../db.ts';
 import { hasPlaces, searchPlaces, type Candidate } from '../services/places.ts';
 import { toE164BR } from '../services/phone.ts';
 import { checkWhatsApp, isConnected } from '../whatsapp.ts';
-import { friendlyError, runTurn, textOf } from './claude.ts';
+import { friendlyError, runTurn, textOf , MODELS } from './claude.ts';
 import { addDiagnosticoNote } from './diagnostico.ts';
 
-const MAX_CHECK = 8;
 const MAX_SHOW = 5;
+/** Quantos vêm do nosso banco, no máximo. */
+const OWN_MAX = 3;
+/** Quantos novos da internet, no mínimo (gente que ainda não recomendamos). */
+const NEW_MIN = 2;
 
 export async function runSearch(requestId: number): Promise<void> {
   const req = getRequest(requestId);
   if (!req || !req.category) return;
   setRequestStatus(requestId, 'buscando');
-  const where = [req.neighborhood, req.city].filter(Boolean).join(', ');
+  const city = req.city ?? 'Porto Alegre';
+  const where = [req.neighborhood, city].filter(Boolean).join(', ');
 
-  let candidates: Candidate[];
+  // 1) nosso banco: quem já apareceu pra essa profissão nessa cidade, melhores primeiro
+  const own = ownProviders(req.category, city, req.neighborhood);
+  const known = new Set(own.map((p) => p.id));
+  const wantNew = Math.max(MAX_SHOW - Math.min(own.length, OWN_MAX), NEW_MIN);
+
+  // 2) internet: sempre traz gente nova pra não ficar enviesado no nosso banco
+  let candidates: Candidate[] = [];
   try {
     candidates = hasPlaces()
       ? await searchPlaces(`${req.category} em ${where}`)
-      : await searchWeb(req.category, req.neighborhood ?? '', req.city ?? 'Porto Alegre');
+      : await searchWeb(req.category, req.neighborhood ?? '', city, wantNew * 2 + 2);
   } catch (err) {
     console.error('[F2] busca falhou', err);
-    setRequestStatus(requestId, 'diagnostico');
-    const msg = err instanceof Error && err.message.startsWith('Places') ? 'A busca no Google falhou. Tenta de novo em instantes.' : friendlyError(err);
-    postMessage(requestId, 'system_event', msg, { kind: 'error' });
-    return;
+    if (!own.length) {
+      setRequestStatus(requestId, 'diagnostico');
+      const msg = err instanceof Error && err.message.startsWith('Places') ? 'A busca no Google falhou. Tenta de novo em instantes.' : friendlyError(err);
+      postMessage(requestId, 'system_event', msg, { kind: 'error' });
+      return;
+    }
+    // sem internet, segue só com o nosso banco
   }
 
-  // normaliza, deduplica por telefone, grava/reaproveita providers
+  // normaliza, deduplica por telefone, grava no banco (com profissão/cidade) e separa os novos
   const seen = new Set<string>();
-  const provs: ProviderRow[] = [];
+  const fresh: ProviderRow[] = [];
   for (const c of candidates) {
     const e164 = c.phone ? toE164BR(c.phone) : null;
     if (!e164 || seen.has(e164)) continue;
     seen.add(e164);
-    provs.push(upsertProvider(c, e164));
+    const p = upsertProvider(c, e164);
+    tagArea(p.id, req.category, city, req.neighborhood);
+    if (!known.has(p.id) && !p.blocked) fresh.push(p);
   }
-  const ranked = provs
-    .filter((p) => !p.blocked)
-    .map((p) => ({ p, score: score(p) }))
-    .sort((a, b) => b.score - a.score)
-    .map((x) => x.p)
-    .slice(0, MAX_CHECK);
+  const freshRanked = fresh.map((p) => ({ p, s: score(p) })).sort((a, b) => b.s - a.s).map((x) => x.p);
 
-  // valida WhatsApp (se conectado); sem conexão, valida no disparo
+  // 3) valida WhatsApp (se conectado; sem conexão, valida no disparo) e monta: até 3 nossos + novos
   const connected = isConnected();
   const chosen: ProviderRow[] = [];
   let noWa = 0;
-  for (const p of ranked) {
-    if (chosen.length >= MAX_SHOW) break;
-    if (connected && !p.wa_jid) {
-      const jid = await checkWhatsApp(p.phone_e164!);
-      if (jid === null) { noWa++; continue; }
-      if (jid) { run('UPDATE providers SET wa_jid = ? WHERE id = ?', jid, p.id); p.wa_jid = jid; }
+  const take = async (list: ProviderRow[], limit: number) => {
+    for (const p of list) {
+      if (chosen.length >= limit) return;
+      if (chosen.some((c) => c.id === p.id)) continue;
+      if (connected && !p.wa_jid) {
+        const jid = await checkWhatsApp(p.phone_e164!);
+        if (jid === null) { noWa++; continue; }
+        if (jid) { run('UPDATE providers SET wa_jid = ? WHERE id = ?', jid, p.id); p.wa_jid = jid; }
+      }
+      chosen.push(p);
     }
-    chosen.push(p);
-  }
+  };
+  await take(own, OWN_MAX);
+  await take(freshRanked, MAX_SHOW);
+  await take(own, MAX_SHOW); // faltou gente nova: completa com o resto do nosso banco
+  console.log(`[F2] ${req.category} em ${where}: ${Math.min(own.length, OWN_MAX)} do banco, ${fresh.length} novos da internet, mostrando ${chosen.length}`);
 
   // helper de dev: o 2º celular do próprio usuário como prestador, sempre no topo
   const devPhone = process.env.DEV_TEST_PROVIDER_PHONE ? toE164BR(process.env.DEV_TEST_PROVIDER_PHONE) : null;
@@ -107,6 +124,38 @@ export async function runSearch(requestId: number): Promise<void> {
   );
 }
 
+/**
+ * Nosso banco: prestadores já encontrados pra essa profissão nessa cidade.
+ * Fora: bloqueados, o de teste e quem levou nota baixa dos nossos usuários.
+ * Ordem: nota dos nossos usuários pesa mais, depois Google; bônus pra quem é do mesmo bairro.
+ */
+function ownProviders(category: string, city: string, neighborhood: string | null): ProviderRow[] {
+  const rows = all<ProviderRow & { area_hood: string | null }>(
+    `SELECT p.*, a.neighborhood AS area_hood FROM provider_areas a JOIN providers p ON p.id = a.provider_id
+      WHERE a.category_key = ? AND a.city_key = ? AND p.blocked = 0 AND p.source != 'teste'
+        AND (p.our_rating_count = 0 OR p.our_rating_avg >= 3.5)`,
+    areaKey(category), areaKey(city),
+  );
+  const hood = areaKey(neighborhood);
+  return rows
+    .map((p) => ({ p, s: score(p) + (hood && areaKey(p.area_hood) === hood ? 1 : 0) }))
+    .sort((a, b) => b.s - a.s)
+    .map((x) => x.p);
+}
+
+/** Guarda em que profissão/cidade esse prestador apareceu (base do nosso banco). */
+function tagArea(providerId: number, category: string, city: string, neighborhood: string | null) {
+  const ts = now();
+  run(
+    `INSERT INTO provider_areas (provider_id, category_key, category, city_key, city, neighborhood, first_seen_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(provider_id, category_key, city_key) DO UPDATE SET
+       times_found = times_found + 1, last_seen_at = excluded.last_seen_at,
+       neighborhood = COALESCE(excluded.neighborhood, neighborhood)`,
+    providerId, areaKey(category), category, areaKey(city), city, neighborhood, ts, ts,
+  );
+}
+
 function score(p: ProviderRow): number {
   const base = (p.rating_google ?? 3.8) * Math.log10((p.reviews_google ?? 0) + 1);
   const ours = p.our_rating_avg != null && p.our_rating_count > 0 ? (p.our_rating_avg - 3) * Math.min(p.our_rating_count, 5) : 0;
@@ -136,7 +185,7 @@ function upsertProvider(c: Candidate, e164: string): ProviderRow {
 }
 
 // ---------- fallback: busca web do Claude, em dois passos ----------
-const SEARCH_SYSTEM = `Tu é um pesquisador que encontra prestadores de serviço locais no Brasil. Usa a busca na web pra achar profissionais reais que atendem na região pedida, de preferência com perfil no Google Maps, site próprio ou anúncios em sites de serviços. Pra cada um, informa nome, telefone com DDD (de preferência celular/WhatsApp), nota e número de avaliações no Google se aparecer, endereço ou região de atendimento, site e a fonte (URL). Não inventa telefone: só lista quem tem telefone encontrado na busca.`;
+const SEARCH_SYSTEM = `Tu é um pesquisador que encontra prestadores de serviço locais no Brasil. Usa a busca na web pra achar profissionais reais que atendem na região pedida, de preferência com perfil no Google Maps, site próprio ou anúncios em sites de serviços. Pra cada um, informa nome, telefone com DDD (de preferência celular/WhatsApp), nota e número de avaliações no Google se aparecer, endereço ou região de atendimento, site e a fonte (URL). Não inventa telefone: só lista quem tem telefone encontrado na busca. Faz buscas simples e diretas (ex.: "eletricista Porto Alegre telefone whatsapp") e lê os resultados como vierem; não precisa filtrar com código. Se a busca chegar no limite, lista o que já achou em vez de desistir.`;
 
 const EXTRACT_SYSTEM = 'Extrai dados estruturados de um texto. Não inventa nada que não esteja no texto; usa null quando faltar.';
 
@@ -165,15 +214,20 @@ const EXTRACT_SCHEMA = {
   additionalProperties: false,
 };
 
-async function searchWeb(profissao: string, bairro: string, cidade: string): Promise<Candidate[]> {
+async function searchWeb(profissao: string, bairro: string, cidade: string, quantos: number): Promise<Candidate[]> {
   // passo 1: pesquisa com web_search (server tool; pause_turn tratado no runTurn)
+  // Pesquisa pela cidade inteira: restringir ao bairro quase não acha ninguém com telefone publicado.
   const step1: MessageParam[] = [{
     role: 'user',
-    content: `Encontra até 10 ${profissao}s que atendam em ${bairro ? bairro + ', ' : ''}${cidade}. Lista cada um com nome, telefone com DDD, nota e avaliações no Google (se houver), endereço/região, site e fonte.`,
+    content:
+      `Encontra até ${quantos} ${profissao}s que atendam em ${cidade}` +
+      (bairro ? ` (de preferência perto do bairro ${bairro}, mas não precisa ser do bairro)` : '') +
+      `. Lista cada um com nome, telefone com DDD, nota e avaliações no Google (se houver), endereço/região, site e fonte.`,
   }];
   const r1 = await runTurn({
+    model: MODELS.busca,
     system: SEARCH_SYSTEM,
-    tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 5, user_location: { type: 'approximate', country: 'BR', city: cidade } }],
+    tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 8, user_location: { type: 'approximate', country: 'BR', city: cidade } }],
     messages: step1,
     effort: 'medium',
     maxTokens: 16000,
@@ -184,10 +238,12 @@ async function searchWeb(profissao: string, bairro: string, cidade: string): Pro
     .map((b) => b.text ?? '')
     .join('\n')
     .trim();
+  console.log(`[F2] pesquisa web: ${found.length} caracteres de texto. Início: ${found.slice(0, 600).replace(/\s+/g, ' ')}`);
   if (!found) return [];
 
   // passo 2: extração estruturada (sem tools, output_config.format)
   const r2 = await runTurn({
+    model: MODELS.busca,
     system: EXTRACT_SYSTEM,
     messages: [{ role: 'user', content: `Extrai a lista de prestadores deste texto:\n\n${found}` }],
     effort: 'medium',

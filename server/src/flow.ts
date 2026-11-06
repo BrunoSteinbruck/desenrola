@@ -8,8 +8,12 @@ import { startNegotiation } from './agents/negociador.ts';
 import { FlowError } from './agents/relator.ts';
 
 export type DispatchResult =
+  | { ok: true; mode: 'free' }
   | { ok: true; mode: 'credit' }
   | { ok: true; mode: 'payment'; payment: PaymentRow };
+
+/** Cobrança ligada? Por enquanto os primeiros usuários usam de graça: só cobra com PAGAMENTO_ATIVO=1 no .env. */
+export const paymentsEnabled = () => /^(1|true|sim)$/i.test(process.env.PAGAMENTO_ATIVO ?? '');
 
 export async function dispatch(requestId: number): Promise<DispatchResult> {
   const req = getRequest(requestId);
@@ -27,6 +31,13 @@ export async function dispatch(requestId: number): Promise<DispatchResult> {
     const e = new FlowError('WhatsApp não conectado', 409) as FlowError & { code?: string };
     e.code = 'wa_not_connected';
     throw e;
+  }
+
+  if (!paymentsEnabled()) {
+    // modo grátis: descarta um Pix pendente (de quando a cobrança estava ligada) e já começa
+    run("UPDATE payments SET status = 'cancelled' WHERE request_id = ? AND status = 'pending'", requestId);
+    void startContacting(requestId);
+    return { ok: true, mode: 'free' };
   }
 
   const existing = activePayment(requestId);

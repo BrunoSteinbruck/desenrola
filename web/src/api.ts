@@ -32,6 +32,9 @@ export type RequestProvider = {
   phone_display: string;
   rating_google: number | null;
   reviews_google: number | null;
+  /** Nota dada pelos nossos usuários (null se ninguém avaliou ainda) */
+  our_rating_avg: number | null;
+  our_rating_count: number;
   address: string | null;
   selected: boolean;
   status: string;
@@ -79,6 +82,17 @@ export type WaState = {
   warning_seen?: boolean;
 };
 
+export type Settings = {
+  user_name: string;
+  user_email: string;
+  user_city: string;
+  user_neighborhood: string;
+  onboarding_done: boolean;
+  price_per_request: number;
+  credits: number;
+  wa_warning_seen: boolean;
+};
+
 export class ApiError extends Error {
   constructor(message: string, public status: number, public code?: string) {
     super(message);
@@ -116,12 +130,15 @@ export const api = {
   resume: (id: number, rpId: number) => call('POST', `/requests/${id}/providers/${rpId}/resume`),
   rate: (id: number, body: { providerId: number; stars: number; comment: string; serviceDone: boolean }) =>
     call('POST', `/requests/${id}/rating`, body),
-  health: () => call<{ claude: boolean; places: boolean; mercadopago: boolean; transcription: boolean }>('GET', '/health'),
+  health: () =>
+    call<{ claude: boolean; places: boolean; mercadopago: boolean; transcription: boolean; payments: boolean }>('GET', '/health'),
+  normalizePlace: (city: string, neighborhood: string) =>
+    call<{ city: string; neighborhood: string; found: boolean }>('POST', '/geo/normalize', { city, neighborhood }),
   whatsapp: () => call<WaState>('GET', '/whatsapp'),
   connectWhatsapp: () => call('POST', '/whatsapp/connect'),
   logoutWhatsapp: () => call('POST', '/whatsapp/logout'),
-  getSettings: () => call<Record<string, string>>('GET', '/settings'),
-  putSettings: (s: Record<string, string>) => call('PUT', '/settings', s),
+  getSettings: () => call<Settings>('GET', '/settings'),
+  putSettings: (s: Partial<Record<keyof Settings, string | boolean>>) => call<Settings>('PUT', '/settings', s),
 };
 
 export type StreamEvent =
@@ -188,7 +205,17 @@ export function subscribe(onEvent: (e: StreamEvent) => void, onReconnect: () => 
   };
 }
 
-export const brl = (cents: number | null | undefined) =>
+/** "555185907072@s.whatsapp.net" -> "(51) 98590-7072" (o JID do WhatsApp às vezes vem sem o 9º dígito). */
+export function phoneFromJid(jid: string | null | undefined): string {
+  const d = (jid ?? '').split('@')[0].split(':')[0].replace(/\D/g, '');
+  if (!d.startsWith('55') || d.length < 12) return d ? `+${d}` : '';
+  const ddd = d.slice(2, 4);
+  let local = d.slice(4);
+  if (local.length === 8 && /^[6-9]/.test(local)) local = `9${local}`;
+  return local.length === 9 ? `(${ddd}) ${local.slice(0, 5)}-${local.slice(5)}` : `(${ddd}) ${local.slice(0, 4)}-${local.slice(4)}`;
+}
+
+export const brl =(cents: number | null | undefined) =>
   cents == null ? '' : (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: cents % 100 ? 2 : 0 });
 
 export const STATUS_LABEL: Record<string, string> = {

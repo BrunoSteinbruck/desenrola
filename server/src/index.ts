@@ -14,10 +14,11 @@ import { runSearch } from './agents/buscador.ts';
 import { onManualReply, onProviderMessage, pushUserReply, recoverNegotiations, resume } from './agents/negociador.ts';
 import { approve, cancelRequest, FlowError, reject } from './agents/relator.ts';
 import { rate } from './agents/followup.ts';
-import { dispatch, resumeAfterConnect } from './flow.ts';
+import { dispatch, paymentsEnabled, resumeAfterConnect } from './flow.ts';
 import { cancelPending, getPayment, hasMercadoPago, PaymentError, simulatePayment, sweepPayments } from './services/payments.ts';
 import { startScheduler } from './services/scheduler.ts';
 import { hasPlaces } from './services/places.ts';
+import { normalizePlace } from './services/geo.ts';
 import { hasClaude } from './agents/claude.ts';
 import { connect, hasSavedSession, logout, setWhatsAppHandlers, waState } from './whatsapp.ts';
 
@@ -187,6 +188,12 @@ app.post('/api/whatsapp/logout', async () => {
 });
 
 // ---------- settings ----------
+// Corrige cidade/bairro digitados pro nome oficial (usado no onboarding antes do mapa)
+app.post('/api/geo/normalize', async (req) => {
+  const b = z.object({ city: z.string().trim().max(100), neighborhood: z.string().trim().max(100) }).parse(req.body ?? {});
+  return normalizePlace(b.city, b.neighborhood);
+});
+
 app.get('/api/settings', async () => publicSettings());
 app.put('/api/settings', async (req) => {
   const b = z.object({
@@ -195,7 +202,11 @@ app.put('/api/settings', async (req) => {
     user_city: z.string().trim().max(100).optional(),
     price_per_request: z.coerce.number().min(1).max(10000).optional(),
     wa_warning_seen: z.boolean().optional(),
+    user_neighborhood: z.string().trim().max(100).optional(),
+    onboarding_done: z.boolean().optional(),
   }).parse(req.body ?? {});
+  if (b.user_neighborhood !== undefined) setSetting('user_neighborhood', b.user_neighborhood);
+  if (b.onboarding_done !== undefined) setSetting('onboarding_done', b.onboarding_done ? '1' : '0');
   if (b.user_name !== undefined) setSetting('user_name', b.user_name);
   if (b.user_email !== undefined) setSetting('user_email', b.user_email);
   if (b.user_city !== undefined) setSetting('user_city', b.user_city);
@@ -211,6 +222,7 @@ app.get('/api/health', async () => ({
   mercadopago: hasMercadoPago(),
   transcription: !!process.env.OPENAI_API_KEY,
   devTestProvider: !!process.env.DEV_TEST_PROVIDER_PHONE,
+  payments: paymentsEnabled(),
 }));
 
 // ---------- SSE ----------

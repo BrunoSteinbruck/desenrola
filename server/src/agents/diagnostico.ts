@@ -7,7 +7,8 @@ import {
 } from '../db.ts';
 import { withLock } from '../lib/lock.ts';
 import { nowBR } from '../lib/time.ts';
-import { friendlyError, runLoop, strictTool, toolInput, type History } from './claude.ts';
+import { shortTitle } from '../lib/title.ts';
+import { friendlyError, runLoop, strictTool, toolInput, type History , MODELS } from './claude.ts';
 
 const AGENT = 'diagnostico';
 
@@ -28,7 +29,11 @@ const TOOLS = [
     'definir_diagnostico',
     'Registra o diagnóstico do problema e libera a busca de prestadores. Chame assim que souber a profissão e o bairro.',
     {
-      titulo: { type: 'string', description: 'Título curto do pedido, ex.: "Tomada da cozinha sem energia"' },
+      titulo: {
+        type: 'string',
+        description:
+          'Título bem resumido do pedido, no máximo 48 caracteres: primeiro a coisa com problema, depois o defeito em poucas palavras se couber. Ex.: "Liquidificador: acoplamento gasto", "Tomada da cozinha faiscando", "Vazamento na pia".',
+      },
       resumo_para_prestador: {
         type: 'string',
         description: 'Descrição objetiva do problema pra mandar ao prestador (2-4 frases). Sem nome, endereço ou telefone do usuário.',
@@ -85,8 +90,12 @@ async function turn(requestId: number, userText: string) {
   if (state.history.length === 0) {
     const name = getSetting('user_name');
     const city = getSetting('user_city') || 'Porto Alegre';
+    const hood = getSetting('user_neighborhood');
     userContent =
-      `Contexto do app:\n- Nome do usuário: ${name || '(não informado)'}\n- Cidade padrão: ${city}\n- Agora: ${nowBR()}\n\n` +
+      `Contexto do app:\n- Nome do usuário: ${name || '(não informado)'}\n- Cidade padrão: ${city}\n` +
+      `- Bairro padrão: ${hood || '(não informado)'}\n` +
+      (hood ? '- Se a mensagem não citar outro lugar, use o bairro e a cidade padrão sem perguntar.\n' : '') +
+      `- Agora: ${nowBR()}\n\n` +
       `Mensagem do usuário:\n${texts.join('\n')}`;
   } else {
     userContent = texts.join('\n');
@@ -113,7 +122,7 @@ async function turn(requestId: number, userText: string) {
     if (!i.profissao || !i.bairro) return { content: 'Faltou profissão ou bairro.', isError: true };
     if (cur.status === 'escolhendo') run("DELETE FROM request_providers WHERE request_id = ? AND status IN ('sugerido','excluido')", requestId);
     updateRequest(requestId, {
-      title: i.titulo || null,
+      title: shortTitle(i.titulo),
       summary: i.resumo_para_prestador,
       category: i.profissao,
       city: i.cidade || getSetting('user_city') || 'Porto Alegre',
@@ -127,10 +136,11 @@ async function turn(requestId: number, userText: string) {
 
   try {
     const res = await runLoop({
+      model: MODELS.diagnostico,
       system: SYSTEM,
       tools: TOOLS,
       history: messages,
-      effort: 'low',
+      effort: 'medium',
       maxTokens: 8000,
       handleTool,
       maxIters: 2,

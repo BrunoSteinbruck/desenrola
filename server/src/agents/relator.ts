@@ -4,7 +4,7 @@ import {
 } from '../db.ts';
 import { formatDateBR, reais } from '../lib/time.ts';
 import { enqueue } from '../whatsapp.ts';
-import { hasClaude, runTurn, textOf } from './claude.ts';
+import { hasClaude, runTurn, textOf , MODELS } from './claude.ts';
 import { pushEvent } from './negociador.ts';
 
 const THANKS_DISMISS = 'Oi! Obrigado pelo retorno e pela atenção. Acabei resolvendo com outro profissional, mas guardo teu contato pra próxima.';
@@ -49,6 +49,7 @@ async function comparison(requestId: number) {
     .join('\n');
   try {
     const r = await runTurn({
+      model: MODELS.relator,
       system: COMP_SYSTEM,
       messages: [{ role: 'user', content: `Serviço: ${req.category} — ${req.summary}\n\nOrçamentos:\n${list}` }],
       effort: 'low',
@@ -79,12 +80,12 @@ export function approve(requestId: number, rpId: number) {
   // só um aprovado por vez
   for (const o of all<RpRow>("SELECT * FROM request_providers WHERE request_id = ? AND status = 'aprovado' AND id != ?", requestId, rpId)) {
     updateRp(o.id, { status: 'orcou' });
-    pushEvent(o.id, 'O cliente desistiu de aprovar teu orçamento por enquanto. Não fecha nada; se o prestador perguntar, diz que o cliente ainda está decidindo.');
+    pushEvent(o.id, 'O cliente escolheu outro orçamento por enquanto. Não fecha nada com esse prestador; se ele perguntar, diz em primeira pessoa que ainda tá vendo.');
   }
   updateRp(rpId, { status: 'aprovado', last_activity_at: now() });
   setRequestStatus(requestId, 'aguardando_confirmacao');
   postMessage(requestId, 'system_event', `Aprovado. Vou confirmar dia e horário com ${getProvider(rp.provider_id)?.name ?? 'o prestador'}.`);
-  pushEvent(rpId, 'O cliente aprovou este orçamento. Confirma o dia e horário com o prestador e chama confirmar_fechamento quando ele confirmar.');
+  pushEvent(rpId, 'O cliente decidiu aceitar este orçamento. Fala com o prestador como se a decisão fosse tua (ex.: "fechado, pode ser"), sem dizer que alguém aprovou. Confirma dia e horário e chama confirmar_fechamento quando ele confirmar.');
 }
 
 export function reject(requestId: number, rpId: number) {
@@ -94,7 +95,7 @@ export function reject(requestId: number, rpId: number) {
   const wasApproved = rp.status === 'aprovado';
   updateRp(rpId, { status: 'recusado_pelo_usuario', last_activity_at: now() });
   if (wasApproved) setRequestStatus(requestId, 'orcamentos');
-  pushEvent(rpId, 'O cliente recusou este orçamento. Agradece ("obrigado, vou avaliar") e encerra a conversa, sem insistir.');
+  pushEvent(rpId, 'O cliente decidiu não seguir com este orçamento. Agradece em primeira pessoa ("obrigado, vou pensar aqui") e encerra a conversa, sem insistir.');
 }
 
 /** Chamado pela tool confirmar_fechamento (já checou status 'aprovado'). */

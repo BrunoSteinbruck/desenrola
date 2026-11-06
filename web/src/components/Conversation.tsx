@@ -8,12 +8,14 @@ export function Conversation({
   streaming,
   wa,
   waiting,
+  paymentsOn,
   onError,
 }: {
   detail: RequestDetail;
   streaming: Message | null;
   wa: WaState;
   waiting: boolean;
+  paymentsOn: boolean;
   onError: (m: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -47,6 +49,15 @@ export function Conversation({
 
   const closed = request.status === 'cancelado' || request.status === 'avaliado';
 
+  // O que o agente está fazendo agora (sem depender de evento: deriva do estado do pedido)
+  const last = messages[messages.length - 1];
+  const activity =
+    request.status === 'buscando'
+      ? 'Procurando profissionais, pode levar até 1 minuto'
+      : waiting || (last?.role === 'user' && !closed)
+        ? 'Pensando'
+        : null;
+
   return (
     <>
       <header className="convo-head">
@@ -62,13 +73,14 @@ export function Conversation({
               ctx={{
                 detail,
                 wa,
+                paymentsOn,
                 onError,
                 isLatest: (kind) => lastIndexByKind.get(kind) === m.id,
               }}
             />
           ))}
-          {streaming && (streaming.content ? <p className="msg-assistant">{streaming.content}</p> : <Typing />)}
-          {!streaming && waiting && <Typing />}
+          {streaming && (streaming.content ? <p className="msg-assistant">{streaming.content}</p> : <Typing label="Pensando" />)}
+          {!streaming && activity && <Typing label={activity} />}
         </div>
       </div>
       {!closed && (
@@ -80,13 +92,16 @@ export function Conversation({
   );
 }
 
-function Typing() {
+function Typing({ label }: { label: string }) {
   return (
-    <span className="typing" aria-label="Escrevendo">
-      <i />
-      <i />
-      <i />
-    </span>
+    <div className="thinking" role="status" aria-live="polite">
+      <span className="typing" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
+      <span className="thinking-label">{label}…</span>
+    </div>
   );
 }
 
