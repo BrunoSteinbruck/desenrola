@@ -46,6 +46,8 @@ export function Composer({
   label: string;
 }) {
   const [text, setText] = useState('');
+  // caixa grande da home: pulsa em ondas suaves até a pessoa começar a digitar; depois para de vez
+  const [touched, setTouched] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -71,7 +73,7 @@ export function Composer({
 
   return (
     <form
-      className={`composer glass${big ? ' big' : ''}`}
+      className={`composer glass${big ? ' big' : ''}${big && !touched ? ' waiting' : ''}`}
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
@@ -87,7 +89,10 @@ export function Composer({
         value={text}
         placeholder={placeholder}
         autoFocus={autoFocus}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          if (e.target.value) setTouched(true);
+        }}
         onKeyDown={onKey}
       />
       <button type="submit" className="send" aria-label="Enviar" disabled={disabled || !text.trim()}>

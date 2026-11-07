@@ -274,3 +274,24 @@ a { color: var(--blue); }
   .row.suggestion { flex-wrap: wrap; }
   .row.suggestion .btn { width: 100%; }
 }
+
+/* Caixa da home esperando a pessoa: ondas de azul céu bem suaves saindo da borda.
+   Some de vez quando ela começa a digitar (classe .waiting sai). */
+.composer { position: relative; }
+.composer.waiting::before,
+.composer.waiting::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: composer-wave 3.2s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+.composer.waiting::after { animation-delay: 1.6s; }
+@keyframes composer-wave {
+  0% { box-shadow: 0 0 0 0 rgba(122, 184, 245, 0.42); }
+  100% { box-shadow: 0 0 0 22px rgba(122, 184, 245, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer.waiting::before, .composer.waiting::after { animation: none; }
+}
