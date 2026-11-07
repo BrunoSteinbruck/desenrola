@@ -275,41 +275,50 @@ a { color: var(--blue); }
   .row.suggestion .btn { width: 100%; }
 }
 
-/* Caixa da home esperando a pessoa: UM feixe de luz azul, fino, correndo pela borda
-   (referência: "border beam" / borda com faixa de luz em conic-gradient girando via @property).
-   Some de vez quando a pessoa começa a digitar (classe .waiting sai). */
-@property --beam {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
-}
+/* Caixa da home: borda viva (referência: "border beam").
+   - esperando (.waiting): um feixe fino de luz azul dá a volta na borda;
+   - começou a digitar (.engaged): o feixe para onde está e a linha cresce pros dois lados
+     a partir dele até fechar a volta toda, e fica assim (vira a borda da caixa). */
+@property --beam { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+@property --span { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
 .composer { position: relative; }
-.composer.waiting::before,
-.composer.waiting::after {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1.5px; /* espessura da linha */
-  background: conic-gradient(
-    from var(--beam),
-    transparent 0deg 250deg,
-    rgba(122, 184, 245, 0.5) 300deg,
-    #7ab8f5 335deg,
-    #2563c4 352deg,
-    transparent 360deg
-  );
-  /* só a borda: recorta o miolo */
+.fx { position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; }
+.fx > span {
+  position: absolute; inset: 0; border-radius: inherit; padding: 1.5px;
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
-  pointer-events: none;
   animation: beam 5s linear infinite;
 }
-/* o mesmo feixe desfocado por baixo: um brilho leve que anda junto */
-.composer.waiting::after { filter: blur(6px); opacity: 0.55; padding: 3px; }
+.fx .beam, .fx .glow {
+  background: conic-gradient(from var(--beam), transparent 0deg 250deg, rgba(122, 184, 245, 0.5) 300deg, #7ab8f5 335deg, #2563c4 352deg, transparent 360deg);
+  transition: opacity 0.7s ease;
+}
+.fx .glow { filter: blur(6px); opacity: 0.55; padding: 3px; }
+.fx .ring {
+  --span: 0deg;
+  background: conic-gradient(from var(--beam), #7ab8f5, #2563c4 50%, #7ab8f5);
+  /* arco que cresce a partir da cabeça do feixe (≈352°), metade pra cada lado */
+  -webkit-mask:
+    conic-gradient(from calc(var(--beam) + 352deg - var(--span) / 2), #000 var(--span), transparent 0),
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: source-in, xor;
+  mask:
+    conic-gradient(from calc(var(--beam) + 352deg - var(--span) / 2), #000 var(--span), transparent 0) intersect,
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  transition: --span 0.9s cubic-bezier(0.22, 0.7, 0.2, 1);
+}
 @keyframes beam { to { --beam: 360deg; } }
-.composer.waiting:focus-within { box-shadow: var(--shadow-card); border-color: var(--line); }
+.composer.engaged .fx > span { animation-play-state: paused; }
+.composer.engaged .fx .beam, .composer.engaged .fx .glow { opacity: 0; }
+.composer.engaged .fx .ring { --span: 360deg; }
+/* a borda viva substitui a borda/halo do foco */
+.composer.waiting, .composer.engaged { border-color: var(--line); }
+.composer.waiting:focus-within, .composer.engaged:focus-within { border-color: var(--line); box-shadow: var(--shadow-card); }
 @media (prefers-reduced-motion: reduce) {
-  .composer.waiting::before, .composer.waiting::after { animation: none; opacity: 0; }
+  .fx > span { animation: none; }
+  .fx .beam, .fx .glow { opacity: 0; }
+  .fx .ring { transition: none; }
 }

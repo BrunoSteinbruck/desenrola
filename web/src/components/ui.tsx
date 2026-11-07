@@ -73,12 +73,19 @@ export function Composer({
 
   return (
     <form
-      className={`composer glass${big ? ' big' : ''}${big && !touched ? ' waiting' : ''}`}
+      className={`composer glass${big ? ` big ${touched ? 'engaged' : 'waiting'}` : ''}`}
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
       }}
     >
+      {big && (
+        <span className="fx" aria-hidden="true">
+          <span className="glow" />
+          <span className="beam" />
+          <span className="ring" />
+        </span>
+      )}
       <label htmlFor={id} className="sr-only">
         {label}
       </label>
