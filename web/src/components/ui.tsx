@@ -79,11 +79,6 @@ export function Composer({
         void submit();
       }}
     >
-      {big && !touched && (
-        <svg className="composer-aura" aria-hidden="true">
-          <rect x="0" y="0" width="100%" height="100%" rx="34" ry="34" />
-        </svg>
-      )}
       <label htmlFor={id} className="sr-only">
         {label}
       </label>

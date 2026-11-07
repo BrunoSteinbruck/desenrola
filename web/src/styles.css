@@ -275,47 +275,41 @@ a { color: var(--blue); }
   .row.suggestion .btn { width: 100%; }
 }
 
-/* Caixa da home esperando a pessoa: linhas finas de azul céu em volta, bem perto da borda.
-   - um contorno pontilhado que corre devagar ao redor (SVG .composer-aura);
-   - duas linhas finas (uma contínua, uma tracejada) que se afastam poucos px e somem,
-     com tempos diferentes pra nunca repetir igual.
-   Tudo some de vez quando a pessoa começa a digitar (classe .waiting sai). */
+/* Caixa da home esperando a pessoa: UM feixe de luz azul, fino, correndo pela borda
+   (referência: "border beam" / borda com faixa de luz em conic-gradient girando via @property).
+   Some de vez quando a pessoa começa a digitar (classe .waiting sai). */
+@property --beam {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
 .composer { position: relative; }
-.composer-aura {
-  position: absolute; inset: -6px; width: calc(100% + 12px); height: calc(100% + 12px);
-  overflow: visible; pointer-events: none;
-}
-.composer-aura rect {
-  fill: none; stroke: var(--sky); stroke-width: 1.4; stroke-linecap: round;
-  stroke-dasharray: 0.01 7; vector-effect: non-scaling-stroke;
-  animation: aura-run 14s linear infinite, aura-breathe 4.6s ease-in-out infinite;
-}
-@keyframes aura-run { to { stroke-dashoffset: -140; } }
-@keyframes aura-breathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.9; } }
 .composer.waiting::before,
 .composer.waiting::after {
   content: '';
   position: absolute;
   inset: -1px;
   border-radius: inherit;
-  border: 1px solid var(--sky);
+  padding: 1.5px; /* espessura da linha */
+  background: conic-gradient(
+    from var(--beam),
+    transparent 0deg 250deg,
+    rgba(122, 184, 245, 0.5) 300deg,
+    #7ab8f5 335deg,
+    #2563c4 352deg,
+    transparent 360deg
+  );
+  /* só a borda: recorta o miolo */
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
   pointer-events: none;
-  opacity: 0;
-  animation: composer-ring 4.3s cubic-bezier(0.25, 0.6, 0.3, 1) infinite;
+  animation: beam 5s linear infinite;
 }
-.composer.waiting::after {
-  border-style: dashed;
-  animation-duration: 5.9s;
-  animation-delay: 2.1s;
-}
-@keyframes composer-ring {
-  0% { inset: -1px; opacity: 0.7; }
-  70% { opacity: 0.15; }
-  100% { inset: -11px; opacity: 0; }
-}
+/* o mesmo feixe desfocado por baixo: um brilho leve que anda junto */
+.composer.waiting::after { filter: blur(6px); opacity: 0.55; padding: 3px; }
+@keyframes beam { to { --beam: 360deg; } }
+.composer.waiting:focus-within { box-shadow: var(--shadow-card); border-color: var(--line); }
 @media (prefers-reduced-motion: reduce) {
   .composer.waiting::before, .composer.waiting::after { animation: none; opacity: 0; }
-  .composer-aura rect { animation: none; opacity: 0.5; }
 }
-/* enquanto as linhas animam, sem o halo largo do foco (fica só a borda fina) */
-.composer.waiting:focus-within { box-shadow: var(--shadow-card); }
