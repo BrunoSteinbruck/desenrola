@@ -14,7 +14,8 @@ process.env.NEGOCIADOR_DEBOUNCE_MS = '0';
 for (const k of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_FROM', 'WHATSAPP_WEBHOOK_URL', 'ANTHROPIC_API_KEY']) delete process.env[k];
 
 const Fastify = (await import('fastify')).default;
-const { all, get, run, now, setSetting, getRp, getRequest } = await import('../src/db.ts');
+const { all, get, run, now, getRp, getRequest } = await import('../src/db.ts');
+const { loginClient, updateClient } = await import('../src/auth/clients.ts');
 const ch = await import('../src/channel/index.ts');
 const { drainOutbox } = await import('../src/channel/outbox.ts');
 const offers = await import('../src/marketplace/offers.ts');
@@ -81,12 +82,14 @@ const tap = (from: string, key: 'pedido_novo' | 'boas_vindas' | 'pergunta_do_cli
   const row = [...outbox(from)].reverse().find((r) => r.template_key === key && (!ref || r.ref === ref))!;
   return say(from, buttonText, { buttonId, buttonText, repliedToMsgId: row.provider_msg_id! });
 };
+const CLIENTE = '5551988887777';
+let clientId = 0;
 function newRequest(text: string) {
   const ts = now();
   const id = Number(
     run(
-      "INSERT INTO requests (status, title, summary, category, city, neighborhood, created_at, updated_at) VALUES ('diagnostico', 'Chuveiro não esquenta', 'Chuveiro elétrico parou de esquentar; provavelmente a resistência.', 'eletricista', 'Porto Alegre', 'Cidade Baixa', ?, ?)",
-      ts, ts,
+      "INSERT INTO requests (status, client_id, title, summary, category, city, neighborhood, created_at, updated_at) VALUES ('diagnostico', ?, 'Chuveiro não esquenta', 'Chuveiro elétrico parou de esquentar; provavelmente a resistência.', 'eletricista', 'Porto Alegre', 'Cidade Baixa', ?, ?)",
+      clientId, ts, ts,
     ).lastInsertRowid,
   );
   run("INSERT INTO messages (request_id, role, content, created_at) VALUES (?, 'user', ?, ?)", id, text, ts);
@@ -143,12 +146,11 @@ test('matching: categoria + região, bairro pesa, lead fica de fora', () => {
 
 let req1 = 0;
 test('pedido: matching → pedido_novo pros dois → Marcos vê e negocia → orçamento → aprovação troca os contatos', async () => {
+  clientId = loginClient(CLIENTE).id;
+  updateClient(clientId, { name: 'Bruno Steinbruck' });
   req1 = newRequest('meu chuveiro parou de esquentar, só sai água fria');
   assert.throws(() => offers.findProviders(999), /não encontrado/);
   assert.equal(offers.findProviders(req1).count, 2);
-  assert.throws(() => offers.dispatch(req1), (e: Error & { code?: string }) => e.code === 'phone_required');
-  setSetting('user_name', 'Bruno Steinbruck');
-  setSetting('user_phone', '5551988887777');
   assert.equal(offers.dispatch(req1).sent, 2);
   await settle();
   const offer = JSON.parse(lastTemplate(MARCOS, 'pedido_novo')!.payload_json).vars;

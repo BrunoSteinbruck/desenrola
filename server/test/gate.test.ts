@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 
-test('SITE_PASSWORD trava tudo menos webhook e health; produção sem senha não sobe', async () => {
+test('SITE_PASSWORD (opcional) trava tudo menos webhook e health', async () => {
   const { registerSiteGate } = await import('../src/lib/gate.ts');
   process.env.SITE_PASSWORD = 'segredo:com:dois-pontos';
   const app = Fastify();
@@ -21,8 +21,9 @@ test('SITE_PASSWORD trava tudo menos webhook e health; produção sem senha não
   await app.close();
 
   delete process.env.SITE_PASSWORD;
-  const prev = process.env.NODE_ENV;
-  process.env.NODE_ENV = 'production';
-  assert.throws(() => registerSiteGate(Fastify()), /SITE_PASSWORD/);
-  process.env.NODE_ENV = prev;
+  const open = Fastify();
+  registerSiteGate(open);
+  open.get('/x', async () => 'ok');
+  assert.equal((await open.inject('/x')).statusCode, 200);
+  await open.close();
 });

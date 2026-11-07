@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, subscribe, STATUS_LABEL, type Message, type RequestDetail, type RequestSummary, type Settings as SettingsData, type StreamEvent } from './api';
 import { Conversation } from './components/Conversation';
 import { Onboarding } from './components/Onboarding';
-import { Admin } from './admin/Admin';
+import { AdminGate } from './admin/AdminGate';
+import { Login } from './components/Login';
 import { Composer, IconGear, IconMenu, IconPlus } from './components/ui';
 
 const idFromHash = () => {
@@ -17,7 +18,7 @@ export const formatPhone = (e164: string) => {
 };
 
 export function App() {
-  if (location.pathname.startsWith('/admin')) return <Admin />;
+  if (location.pathname.startsWith('/admin')) return <AdminGate />;
   return <ClientApp />;
 }
 
@@ -32,6 +33,7 @@ function ClientApp() {
   const [noKey, setNoKey] = useState(false);
   const [paymentsOn, setPaymentsOn] = useState(false);
   const [settings, setSettings] = useState<SettingsData | null>(null);
+  const [auth, setAuth] = useState<'checking' | 'out' | 'in'>('checking');
   const [panel, setPanel] = useState<'settings' | null>(null);
   const currentRef = useRef(currentId);
   currentRef.current = currentId;
@@ -64,11 +66,11 @@ function ClientApp() {
     setStreaming(null);
     setWaiting(false);
     setDetail(null);
-    if (currentId != null) loadDetail(currentId);
-  }, [currentId, loadDetail]);
+    if (currentId != null && auth === 'in') loadDetail(currentId);
+  }, [currentId, loadDetail, auth]);
 
+  // quem está logado (cookie): sem sessão, mostra o login
   useEffect(() => {
-    void loadList();
     api
       .health()
       .then((h) => {
@@ -76,11 +78,22 @@ function ClientApp() {
         setPaymentsOn(!!h.payments);
       })
       .catch(() => {});
-    api.getSettings().then(setSettings).catch(() => {});
-  }, [loadList]);
+    api.getSettings().then(
+      (s) => {
+        setSettings(s);
+        setAuth('in');
+      },
+      () => setAuth('out'),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (auth === 'in') void loadList();
+  }, [auth, loadList]);
 
   // Tempo real
   useEffect(() => {
+    if (auth !== 'in') return;
     const onEvent = (e: StreamEvent) => {
       const cur = currentRef.current;
       switch (e.type) {
@@ -124,7 +137,7 @@ function ClientApp() {
       void loadList();
       if (currentRef.current != null) loadDetail(currentRef.current);
     });
-  }, [loadList, loadDetail]);
+  }, [loadList, loadDetail, auth]);
 
   const go = (id: number | null) => {
     location.hash = id == null ? '' : `#/p/${id}`;
@@ -142,13 +155,32 @@ function ClientApp() {
     }
   };
 
+  const backdrop = (
+    <div className="backdrop" aria-hidden="true">
+      <span className="b1" />
+      <span className="b2" />
+      <span className="b3" />
+    </div>
+  );
+  if (auth !== 'in') {
+    return (
+      <>
+        {backdrop}
+        {auth === 'out' && (
+          <Login
+            onDone={(me) => {
+              setSettings(me);
+              setAuth('in');
+            }}
+          />
+        )}
+      </>
+    );
+  }
+
   return (
     <>
-      <div className="backdrop" aria-hidden="true">
-        <span className="b1" />
-        <span className="b2" />
-        <span className="b3" />
-      </div>
+      {backdrop}
       <div className="app">
         <nav aria-label="Histórico" className={`sidebar glass${menuOpen ? ' open' : ''}`}>
           <div className="brand-row">
@@ -177,7 +209,7 @@ function ClientApp() {
         <main className="main">
           {currentId == null && settings && !settings.onboarding_done ? (
             <Onboarding
-              initial={{ user_name: settings.user_name, user_phone: settings.user_phone ? formatPhone(settings.user_phone) : '', user_city: settings.user_city, user_neighborhood: settings.user_neighborhood }}
+              initial={{ user_name: settings.user_name, user_city: settings.user_city, user_neighborhood: settings.user_neighborhood }}
               onDone={() => api.getSettings().then(setSettings).catch(() => setSettings({ ...settings, onboarding_done: true }))}
             />
           ) : currentId == null ? (
@@ -260,7 +292,12 @@ function Settings({ onClose, onError }: { onClose: () => void; onError: (m: stri
   return (
     <Dialog title="Configurações" onClose={onClose}>
       {field('user_name', 'Teu nome', 'text', 'Bruno')}
-      {field('user_phone', 'Celular (vai pro profissional quando tu aprovar um orçamento)', 'tel', '(51) 99999-8888')}
+      <p className="note">
+        Celular {s.user_phone || '…'}: é teu login e vai pro profissional quando tu aprovar um orçamento.{' '}
+        <button type="button" className="link-btn" onClick={() => void api.logout().finally(() => location.reload())}>
+          Sair
+        </button>
+      </p>
       <div className="field-row">
         {field('user_city', 'Cidade', 'text', 'Porto Alegre')}
         {field('user_neighborhood', 'Bairro', 'text', 'Bom Fim')}
@@ -274,7 +311,6 @@ function Settings({ onClose, onError }: { onClose: () => void; onError: (m: stri
               user_name: s.user_name ?? '',
               user_city: s.user_city ?? '',
               user_neighborhood: s.user_neighborhood ?? '',
-              user_phone: s.user_phone ?? '',
             })
             .then(onClose)
             .catch((e) => onError(e instanceof Error && e.message ? e.message : 'Não consegui salvar.'))

@@ -76,11 +76,10 @@ export type RequestDetail = {
 
 export type Settings = {
   user_name: string;
-  user_email: string;
   user_city: string;
   user_neighborhood: string;
   onboarding_done: boolean;
-  /** celular do cliente em E.164 sem "+" (vai pro profissional quando ele aprova um orçamento) */
+  /** celular do cliente em E.164 sem "+" (é o login; vai pro profissional quando ele aprova um orçamento) */
   user_phone: string;
 };
 
@@ -125,6 +124,9 @@ export const api = {
   normalizePlace: (city: string, neighborhood: string) =>
     call<{ city: string; neighborhood: string; found: boolean }>('POST', '/geo/normalize', { city, neighborhood }),
   getSettings: () => call<Settings>('GET', '/settings'),
+  requestCode: (phone: string) => call<{ ok: true; dev_code?: string }>('POST', '/auth/request-code', { phone }),
+  verifyCode: (phone: string, code: string, consent: boolean) => call<Settings>('POST', '/auth/verify', { phone, code, consent }),
+  logout: () => call('POST', '/auth/logout'),
   putSettings: (s: Partial<Record<keyof Settings, string | boolean>>) => call<Settings>('PUT', '/settings', s),
 };
 

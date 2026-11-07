@@ -107,6 +107,9 @@ async function call<T = unknown>(method: string, path: string, body?: unknown): 
 }
 
 export const adminApi = {
+  me: () => call<{ ok: true }>('GET', '/me'),
+  login: (password: string) => call<{ ok: true }>('POST', '/login', { password }),
+  logout: () => call<{ ok: true }>('POST', '/logout'),
   providers: () => call<AdminProvider[]>('GET', '/providers'),
   createProvider: (p: ProviderInput) => call<{ id: number; invite: InviteResult }>('POST', '/providers', p),
   updateProvider: (id: number, p: Partial<ProviderInput> & { status?: 'ativo' | 'pausado' | 'bloqueado' }) =>
@@ -126,7 +129,7 @@ export function subscribeAdmin(handlers: { inbox: () => void; providers: () => v
   let hadError = false;
 
   const open = () => {
-    es = new EventSource('/api/stream');
+    es = new EventSource('/api/admin/stream');
     es.onopen = () => {
       if (hadError) {
         handlers.inbox();

@@ -3,8 +3,9 @@ import { randomUUID } from 'node:crypto';
 import type { MessageParam, ToolUseBlock } from '@anthropic-ai/sdk/resources/messages/messages';
 import { bus } from '../events.ts';
 import {
-  get, getRequest, getSetting, postMessage, run, updateRequest, setRequestStatus, type Card,
+  get, getRequest, postMessage, run, updateRequest, setRequestStatus, type Card,
 } from '../db.ts';
+import { clientOfRequest } from '../auth/clients.ts';
 import { withLock } from '../lib/lock.ts';
 import { nowBR } from '../lib/time.ts';
 import { shortTitle } from '../lib/title.ts';
@@ -88,9 +89,10 @@ async function turn(requestId: number, userText: string) {
 
   let userContent: string;
   if (state.history.length === 0) {
-    const name = getSetting('user_name');
-    const city = getSetting('user_city') || 'Porto Alegre';
-    const hood = getSetting('user_neighborhood');
+    const client = clientOfRequest(requestId);
+    const name = client?.name ?? '';
+    const city = client?.city || 'Porto Alegre';
+    const hood = client?.neighborhood ?? '';
     userContent =
       `Contexto do app:\n- Nome do usuário: ${name || '(não informado)'}\n- Cidade padrão: ${city}\n` +
       `- Bairro padrão: ${hood || '(não informado)'}\n` +
@@ -125,7 +127,7 @@ async function turn(requestId: number, userText: string) {
       title: shortTitle(i.titulo),
       summary: i.resumo_para_prestador,
       category: i.profissao,
-      city: i.cidade || getSetting('user_city') || 'Porto Alegre',
+      city: i.cidade || clientOfRequest(requestId)?.city || 'Porto Alegre',
       neighborhood: i.bairro,
       details_json: JSON.stringify({ urgencia: i.urgencia }),
     });

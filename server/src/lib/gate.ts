@@ -1,6 +1,6 @@
-// Trava do site inteiro enquanto o login de verdade (F2) não existe.
-// Hoje as rotas não têm dono: qualquer um com a URL veria e mexeria em todos os pedidos.
-// Com SITE_PASSWORD, o navegador pede usuário/senha (Basic). O webhook da Twilio e o health ficam de fora.
+// Trava opcional do site inteiro (pré-lançamento): com SITE_PASSWORD, o navegador pede usuário/senha (Basic).
+// Desde a F2 cada cliente entra com o celular e o admin tem senha própria; isto só esconde o site antes de abrir.
+// O webhook da Twilio e o health ficam de fora.
 import { timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 
@@ -14,12 +14,7 @@ function same(a: string, b: string) {
 
 export function registerSiteGate(app: FastifyInstance) {
   const password = process.env.SITE_PASSWORD;
-  if (!password) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('SITE_PASSWORD é obrigatória em produção até existir login (F2): sem ela o site fica aberto pra qualquer um.');
-    }
-    return;
-  }
+  if (!password) return;
   app.addHook('onRequest', async (req, reply) => {
     if (OPEN.some((p) => req.url.startsWith(p))) return;
     const h = req.headers.authorization ?? '';

@@ -28,11 +28,13 @@ entrada durável, fila de saída com retry, janela de 24h e opt-in/opt-out.
   (deploy no Render ou um túnel) e `WHATSAPP_WEBHOOK_URL` igual à cadastrada no sandbox.
 - **Templates:** o texto fica em `server/src/channel/templates.ts`. `npm run wa:templates` mostra; `-- submit` manda pra aprovação; `-- status` acompanha.
   Os SIDs aprovados vão em `WA_TPL_*`.
-- **Deploy:** `render.yaml` (Blueprint). O site fica atrás de `SITE_PASSWORD` até existir login.
+- **Deploy:** `render.yaml` (Blueprint). `ADMIN_PASSWORD` é obrigatória; `SITE_PASSWORD` (opcional) esconde o site antes do lançamento.
 
 ## Como funciona a V2
 
-1. **Admin** em `/admin` (mesma senha do site): cadastra o profissional (nome, celular, categorias, bairros).
+0. **Login:** o cliente entra com o celular; o código chega no WhatsApp (template `codigo_verificacao`). Sem Twilio, o código aparece na própria tela.
+   Cada cliente só vê os próprios pedidos (rotas e tempo real). O primeiro cliente a entrar herda os pedidos da época de usuário único.
+1. **Admin** em `/admin` (senha `ADMIN_PASSWORD`; em dev qualquer senha): cadastra o profissional (nome, celular, categorias, bairros).
    Sai o template `boas_vindas`; só quando ele toca em **"Sim, quero receber"** vira ativo (a prova do opt-in fica guardada).
 2. **Cliente** descreve o problema no site → diagnóstico → "Ver eletricista da região" (matching no nosso banco, não manda nada) →
    "Pedir orçamentos" (template `pedido_novo` pros selecionados).

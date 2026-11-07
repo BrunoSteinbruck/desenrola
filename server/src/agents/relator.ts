@@ -1,12 +1,13 @@
 // Relator (V2): cards de orçamento, resumo comparativo e as decisões do cliente
 // (aprovar = fechar e trocar contatos; recusar; cancelar). Tudo que vai pro prestador fora da conversa é template.
 import {
-  all, get, getProvider, getRequest, getRp, getSetting, now, postMessage, run, setRequestStatus, updateRp, type RpRow,
+  all, get, getProvider, getRequest, getRp, now, postMessage, run, setRequestStatus, updateRp, type RpRow,
 } from '../db.ts';
+import { clientOfRequest } from '../auth/clients.ts';
 import { reais } from '../lib/time.ts';
 import { formatBR } from '../services/phone.ts';
 import { enqueue, OutboxError } from '../channel/index.ts';
-import { checkExhausted, OPEN_OFFER, promoteNext } from '../marketplace/offers.ts';
+import { checkExhausted, notifyClient, OPEN_OFFER, promoteNext, siteUrl } from '../marketplace/offers.ts';
 import { hasClaude, runTurn, textOf, MODELS } from './claude.ts';
 import { pushEvent } from './negociador.ts';
 
@@ -17,6 +18,11 @@ export function onQuote(rpId: number) {
   if (req.status === 'contatando') setRequestStatus(req.id, 'orcamentos');
   postMessage(req.id, 'assistant', `${prov.name} mandou orçamento: ${reais(rp.quote_value_cents)}.`, { kind: 'quote', rpId });
   scheduleComparison(req.id);
+  // aviso no WhatsApp do cliente: no máximo um a cada 30 min por pedido (vários orçamentos seguidos = 1 aviso)
+  const recent = get('SELECT 1 FROM wa_outbox WHERE ref = ? AND created_at >= ?', `req:${req.id}`, new Date(Date.now() - 30 * 60_000).toISOString());
+  if (!recent) {
+    notifyClient(req.id, 'cliente_orcamento_chegou', { pedido: String(req.id), titulo: req.title ?? req.category ?? 'teu pedido', link: siteUrl(`/#/p/${req.id}`) });
+  }
   // a negociação ativa desse prestador terminou: se ele tem outro pedido na fila, começa
   promoteNext(rp.provider_id);
 }
@@ -110,9 +116,10 @@ export function approve(requestId: number, rpId: number) {
   if (!['orcou', 'respondeu', 'pausado'].includes(rp.status)) throw new FlowError(`Não dá pra aprovar nesse estado (${rp.status})`, 409);
   const req = getRequest(requestId)!;
   if (['fechado', 'avaliado', 'cancelado'].includes(req.status)) throw new FlowError('Pedido já encerrado', 409);
-  const name = getSetting('user_name').trim();
-  const phone = getSetting('user_phone');
-  if (!name || !phone) throw new FlowError('Informa teu nome e celular em Configurações: é o que o profissional recebe pra combinar contigo.', 409);
+  const client = clientOfRequest(requestId);
+  const name = client?.name.trim() ?? '';
+  const phone = client?.phone ?? '';
+  if (!name || !phone) throw new FlowError('Informa teu nome em Configurações: é o que o profissional recebe pra combinar contigo.', 409);
   const prov = getProvider(rp.provider_id)!;
 
   enqueue({

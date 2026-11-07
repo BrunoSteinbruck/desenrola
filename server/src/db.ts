@@ -227,6 +227,7 @@ export interface RequestRow {
   city: string | null; neighborhood: string | null; details_json: string | null; status: RequestStatus;
   created_at: string; updated_at: string; scheduled_for: string | null; closed_at: string | null;
   closed_provider_id: number | null; closed_value_cents: number | null; followup_sent_at: string | null;
+  client_id?: number | null;
 }
 export interface ProviderRow {
   id: number; name: string; phone_e164: string | null; wa_jid: string | null; wa_lid: string | null;
@@ -305,11 +306,12 @@ export function postMessage(
 }
 
 // ---------- views (contrato da API) ----------
-export function listRequestsView() {
+export function listRequestsView(clientId: number) {
   return all<Row>(
     `SELECT r.id, r.title, r.status, r.updated_at,
        (SELECT content FROM messages m WHERE m.request_id = r.id AND m.role = 'user' ORDER BY m.id LIMIT 1) AS first_msg
-     FROM requests r ORDER BY r.updated_at DESC, r.id DESC`,
+     FROM requests r WHERE r.client_id = ? ORDER BY r.updated_at DESC, r.id DESC`,
+    clientId,
   ).map((r) => ({
     id: r.id,
     title: r.title || shortTitle(r.first_msg ? String(r.first_msg) : null),

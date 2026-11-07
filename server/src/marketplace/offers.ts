@@ -9,8 +9,9 @@
 //   pausado = conversa com um humano do Desenrola (handoff)
 import { bus } from '../events.ts';
 import {
-  all, get, getRequest, getRp, getSetting, now, postMessage, run, setRequestStatus, updateRp, type RpRow,
+  all, get, getRequest, getRp, now, postMessage, run, setRequestStatus, updateRp, type RpRow,
 } from '../db.ts';
+import { clientByPhone, clientOfRequest } from '../auth/clients.ts';
 import { enqueue, OutboxError, type InboundMessage } from '../channel/index.ts';
 import type { MessageContext } from '../channel/index.ts';
 import { windowOpen } from '../channel/store.ts';
@@ -38,8 +39,9 @@ type NegotiatorHooks = {
   start: (rpId: number, providerText: string | null) => void;
   providerMessage: (rpId: number, text: string) => void;
   event: (rpId: number, text: string) => void;
+  clientReply: (rpId: number, text: string) => void;
 };
-let neg: NegotiatorHooks = { start: () => {}, providerMessage: () => {}, event: () => {} };
+let neg: NegotiatorHooks = { start: () => {}, providerMessage: () => {}, event: () => {}, clientReply: () => {} };
 export function setNegotiatorHooks(h: NegotiatorHooks) {
   neg = h;
 }
@@ -52,7 +54,7 @@ export function findProviders(requestId: number) {
   if (!req) throw new OfferError('Pedido não encontrado', 404);
   if (!req.category) throw new OfferError('Ainda não tenho o diagnóstico desse pedido', 409);
   if (!['diagnostico', 'sem_prestadores', 'escolhendo'].includes(req.status)) throw new OfferError(`Não dá pra buscar nessa etapa (${req.status})`, 409);
-  const city = req.city || getSetting('user_city') || 'Porto Alegre';
+  const city = req.city || clientOfRequest(requestId)?.city || 'Porto Alegre';
   const found = eligibleProviders(req.category, city, req.neighborhood).slice(0, MAX_OFFERS);
 
   run("DELETE FROM request_providers WHERE request_id = ? AND status IN ('sugerido','excluido')", requestId);
@@ -95,9 +97,7 @@ export function dispatch(requestId: number) {
   const req = getRequest(requestId);
   if (!req) throw new OfferError('Pedido não encontrado', 404);
   if (req.status !== 'escolhendo') throw new OfferError(`Não dá pra pedir orçamento nessa etapa (${req.status})`, 409);
-  if (!getSetting('user_phone')) {
-    throw new OfferError('Informa teu celular em Configurações: é ele que o profissional recebe quando tu aprovar um orçamento.', 409, 'phone_required');
-  }
+  if (!clientOfRequest(requestId)) throw new OfferError('Pedido sem cliente: entra de novo com teu celular.', 409, 'login_required');
   const selected = all<RpRow>("SELECT * FROM request_providers WHERE request_id = ? AND selected = 1 AND status = 'sugerido' ORDER BY position", requestId);
   if (!selected.length) throw new OfferError('Seleciona pelo menos um profissional', 400);
 
@@ -176,6 +176,7 @@ export async function onInbound(msg: InboundMessage, ctx: MessageContext) {
     return; // um humano está na conversa
   }
   if (!p) {
+    if (clientByPhone(msg.from)) return onClientMessage(msg, ctx);
     createHandoff(msg.from, null, null, 'Mensagem de um número que não é prestador cadastrado');
     return;
   }
@@ -202,6 +203,44 @@ export async function onInbound(msg: InboundMessage, ctx: MessageContext) {
   }
   if (msg.buttonId) neg.providerMessage(rp.id, `[tocou no botão "${msg.buttonText ?? msg.buttonId}"]`);
   else if (text) neg.providerMessage(rp.id, text);
+}
+
+/** URL do site (links nos templates do cliente). */
+export const siteUrl = (path = '') => `${(process.env.PUBLIC_URL || 'http://localhost:5173').replace(/\/$/, '')}${path}`;
+
+/**
+ * Cliente escrevendo no nosso WhatsApp. Se for resposta a uma pergunta de profissional (template
+ * cliente_pergunta_prestador, ref "ask:<rpId>"), vira resposta pro negociador; senão, aponta pro site.
+ */
+function onClientMessage(msg: InboundMessage, ctx: MessageContext) {
+  const c = clientByPhone(msg.from)!;
+  const text = msg.text.trim();
+  const viaRef = ctx.repliedTo?.ref?.match(/^ask:(\d+)$/);
+  const recent = get<{ ref: string }>(
+    "SELECT ref FROM wa_outbox WHERE to_phone = ? AND ref LIKE 'ask:%' AND created_at >= ? ORDER BY id DESC LIMIT 1",
+    msg.from, new Date(Date.now() - 24 * 3600_000).toISOString(),
+  );
+  const rpId = Number((viaRef ?? recent?.ref.match(/^ask:(\d+)$/))?.[1] ?? 0);
+  const rp = rpId ? getRp(rpId) : undefined;
+  const req = rp ? getRequest(rp.request_id) : undefined;
+  if (text && rp && req && req.client_id === c.id && OPEN_OFFER.includes(rp.status as (typeof OPEN_OFFER)[number])) {
+    postMessage(req.id, 'user', text);
+    neg.clientReply(rp.id, text);
+    reply(msg.from, 'Mandei tua resposta pro profissional. Os orçamentos aparecem no site.');
+    return;
+  }
+  reply(msg.from, `Oi! Pra ver teus pedidos e os orçamentos, entra em ${siteUrl()} com este número.`);
+}
+
+/** Avisa o cliente no WhatsApp (se ele aceitou receber). Falha silenciosa: o site sempre mostra. */
+export function notifyClient(requestId: number, template: 'cliente_orcamento_chegou' | 'cliente_pergunta_prestador', vars: Record<string, string>, ref?: string) {
+  const c = clientOfRequest(requestId);
+  if (!c) return;
+  try {
+    enqueue({ to: c.phone, template, vars, ref: ref ?? `req:${requestId}` });
+  } catch (e) {
+    if (!(e instanceof OutboxError)) throw e;
+  }
 }
 
 function reply(phone: string, text: string) {

@@ -118,9 +118,14 @@ export function Admin() {
               )}
             </button>
           </nav>
-          <a className="adm-back" href="/">
-            Voltar pro site
-          </a>
+          <span style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+            <a className="adm-back" href="/">
+              Voltar pro site
+            </a>
+            <button type="button" className="adm-back" style={{ background: 'none', border: 0, cursor: 'pointer', font: 'inherit' }} onClick={() => void adminApi.logout().finally(() => location.reload())}>
+              Sair
+            </button>
+          </span>
         </header>
 
         {loadError && (

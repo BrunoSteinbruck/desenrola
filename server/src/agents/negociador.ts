@@ -6,7 +6,7 @@ import { withLock } from '../lib/lock.ts';
 import { hhmmBR, nowBR } from '../lib/time.ts';
 import { enqueue, OutboxError } from '../channel/index.ts';
 import { windowOpen } from '../channel/store.ts';
-import { checkExhausted, createHandoff, promoteNext, setNegotiatorHooks } from '../marketplace/offers.ts';
+import { checkExhausted, createHandoff, notifyClient, promoteNext, setNegotiatorHooks } from '../marketplace/offers.ts';
 import { getProviderV2 } from '../marketplace/providers.ts';
 import { friendlyError, runLoop, strictTool, toolInput, type History, type LoopOptions, type LoopResult, MODELS } from './claude.ts';
 import { onQuote } from './relator.ts';
@@ -257,6 +257,8 @@ async function handleTool(rpId: number, b: ToolUseBlock): Promise<{ content: str
     case 'perguntar_ao_cliente': {
       const i = toolInput<{ pergunta: string }>(b);
       postMessage(rp.request_id, 'assistant', `${prov.name} perguntou: ${i.pergunta}`, { kind: 'decision', rpId, pergunta: i.pergunta });
+      const req = getRequest(rp.request_id)!;
+      notifyClient(req.id, 'cliente_pergunta_prestador', { pedido: String(req.id), titulo: req.title ?? req.category ?? 'teu pedido', pergunta: i.pergunta }, `ask:${rpId}`);
       return { content: 'Pergunta enviada ao cliente; a resposta chega como [cliente]. Diz ao profissional que já perguntou e que avisa assim que o cliente responder.' };
     }
     case 'marcar_sem_interesse': {
@@ -282,6 +284,7 @@ setNegotiatorHooks({
   start: (rpId, text) => void startNegotiation(rpId, text),
   providerMessage: onProviderMessage,
   event: pushEvent,
+  clientReply: pushUserReply,
 });
 
 export function recoverNegotiations() {

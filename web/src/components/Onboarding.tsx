@@ -7,8 +7,7 @@ type Step = 'intro' | 'nome' | 'local';
 export function Onboarding({ initial, onDone }: { initial: Record<string, string>; onDone: () => void }) {
   const [step, setStep] = useState<Step>('intro');
   const [name, setName] = useState(initial.user_name ?? '');
-  const [phone, setPhone] = useState(initial.user_phone ?? '');
-  const phoneOk = phone.replace(/\D/g, '').replace(/^55/, '').length >= 10;
+
   const [city, setCity] = useState(initial.user_city || 'Porto Alegre');
   const [hood, setHood] = useState(initial.user_neighborhood ?? '');
   const [busy, setBusy] = useState(false);
@@ -26,14 +25,13 @@ export function Onboarding({ initial, onDone }: { initial: Record<string, string
     try {
       await api.putSettings({
         user_name: name.trim(),
-        user_phone: phone.trim(),
         user_city: (place?.city ?? city).trim(),
         user_neighborhood: (place?.neighborhood ?? hood).trim(),
         onboarding_done: true,
       });
       onDone();
     } catch {
-      setError('Não consegui salvar. Confere o celular (DDD + número).');
+      setError('Não consegui salvar agora. Tenta de novo.');
       setBusy(false);
     }
   };
@@ -44,7 +42,7 @@ export function Onboarding({ initial, onDone }: { initial: Record<string, string
         <div className="ob-box glass" key="intro">
           <h1>Antes de começar</h1>
           <p>
-            Eu aviso profissionais da tua região e te trago os orçamentos. Pra isso preciso saber teu nome, teu celular e onde tu mora.
+            Eu aviso profissionais da tua região e te trago os orçamentos. Pra isso preciso saber teu nome e onde tu mora.
           </p>
           <button type="button" className="btn dark ob-cta" autoFocus onClick={() => setStep('nome')}>
             Vamos lá
@@ -58,7 +56,7 @@ export function Onboarding({ initial, onDone }: { initial: Record<string, string
           key="nome"
           onSubmit={(e) => {
             e.preventDefault();
-            if (name.trim() && phoneOk) setStep('local');
+            if (name.trim()) setStep('local');
           }}
         >
           <Progress at={1} />
@@ -76,23 +74,12 @@ export function Onboarding({ initial, onDone }: { initial: Record<string, string
             placeholder="Teu nome"
             onChange={(e) => setName(e.target.value)}
           />
-          <label className="sr-only" htmlFor="ob-phone">
-            Teu celular
-          </label>
-          <input
-            id="ob-phone"
-            className="ob-input"
-            value={phone}
-            type="tel"
-            autoComplete="tel-national"
-            placeholder="Celular com DDD"
-            onChange={(e) => setPhone(e.target.value)}
-          />
+
           <div className="ob-actions">
             <button type="button" className="btn ghost" onClick={() => setStep('intro')}>
               Voltar
             </button>
-            <button type="submit" className="btn dark" disabled={!name.trim() || !phoneOk}>
+            <button type="submit" className="btn dark" disabled={!name.trim()}>
               Continuar
             </button>
           </div>
