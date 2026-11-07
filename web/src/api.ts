@@ -75,6 +75,8 @@ export type RequestDetail = {
 };
 
 export type Settings = {
+  /** visitante: ainda não confirmou o celular (pode conversar; pra avisar profissionais precisa entrar) */
+  is_guest: boolean;
   user_name: string;
   user_city: string;
   user_neighborhood: string;

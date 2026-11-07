@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { api, STATUS_LABEL, type Card, type Message, type RequestDetail } from '../api';
+import { api, STATUS_LABEL, type Card, type Message, type RequestDetail, type Settings } from '../api';
 import { CardView } from './Cards';
 import { Composer } from './ui';
 
@@ -7,11 +7,15 @@ export function Conversation({
   detail,
   streaming,
   waiting,
+  me,
+  onLoggedIn,
   paymentsOn,
   onError,
 }: {
   detail: RequestDetail;
   streaming: Message | null;
+  me: Settings;
+  onLoggedIn: (me: Settings) => void;
   waiting: boolean;
   paymentsOn: boolean;
   onError: (m: string) => void;
@@ -72,6 +76,8 @@ export function Conversation({
               m={m}
               ctx={{
                 detail,
+                me,
+                onLoggedIn,
                 paymentsOn,
                 onError,
                 isLatest: (kind) => lastIndexByKind.get(kind) === m.id,

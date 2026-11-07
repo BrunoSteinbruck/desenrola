@@ -4,6 +4,7 @@ import { hourBR } from '../lib/time.ts';
 import { enqueue, OutboxError } from '../channel/index.ts';
 import { checkExhausted, promoteNext } from '../marketplace/offers.ts';
 import { sweepFollowups } from '../agents/followup.ts';
+import { sweepGuests } from '../auth/clients.ts';
 
 const H = 3600_000;
 
@@ -59,6 +60,11 @@ export function tick() {
     sweepFollowups();
   } catch (e) {
     console.error('[scheduler] follow-up', e);
+  }
+  try {
+    sweepGuests();
+  } catch (e) {
+    console.error('[scheduler] visitantes', e);
   }
 }
 

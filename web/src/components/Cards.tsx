@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import { api, brl, ApiError, PROVIDER_STATUS_LABEL, type Card, type RequestDetail, type RequestProvider } from '../api';
+import { api, brl, ApiError, PROVIDER_STATUS_LABEL, type Card, type RequestDetail, type RequestProvider, type Settings } from '../api';
+import { Login } from './Login';
 import { IconStar } from './ui';
 
 type Ctx = {
   detail: RequestDetail;
+  me: Settings;
+  onLoggedIn: (me: Settings) => void;
   paymentsOn: boolean;
   isLatest: (kind: Card['kind']) => boolean;
   onError: (msg: string) => void;
@@ -88,7 +91,22 @@ function ProvidersCard({ ctx }: { ctx: Ctx }) {
           <span className="meta">{rating(p)}</span>
         </label>
       ))}
-      {editable && (
+      {editable && ctx.me.is_guest && (
+        <div className="card-body">
+          <Login
+            inline
+            askName={!ctx.me.user_name}
+            title="Confirma teu celular pra eu avisar os profissionais"
+            intro="Te mando um código no WhatsApp. Teu celular só vai pro profissional que tu aprovar."
+            submitLabel={selected === 1 ? 'Confirmar e pedir orçamento' : 'Confirmar e pedir orçamentos'}
+            onDone={(me) => {
+              ctx.onLoggedIn(me);
+              void run(() => api.dispatch(request.id));
+            }}
+          />
+        </div>
+      )}
+      {editable && !ctx.me.is_guest && (
         <div className="card-foot">
           <span className="note">{selected === 1 ? '1 selecionado' : `${selected} selecionados`}</span>
           <button

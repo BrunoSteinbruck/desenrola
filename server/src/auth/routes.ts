@@ -6,7 +6,7 @@ import { channel, enqueue, OutboxError } from '../channel/index.ts';
 import { recordOptIn } from '../channel/store.ts';
 import { toE164BR } from '../services/phone.ts';
 import {
-  AuthError, clientView, createSession, deleteSession, getClient, issueCode, loginClient, SESSION_DAYS, sessionFor, verifyCode, type ClientRow,
+  AuthError, clientView, createGuest, createSession, deleteSession, getClient, issueCode, loginClient, SESSION_DAYS, sessionFor, verifyCode, type ClientRow,
 } from './clients.ts';
 
 declare module 'fastify' {
@@ -66,8 +66,12 @@ export async function registerAuth(app: FastifyInstance) {
       return reply.code(401).send({ error: 'Entra com a senha do admin', code: 'admin_required' });
     }
     const s = sessionFor(readCookie(req, CLIENT_COOKIE));
-    const c = s?.client_id ? getClient(s.client_id) : undefined;
-    if (!c) return reply.code(401).send({ error: 'Entra com teu celular pra continuar', code: 'login_required' });
+    let c = s?.client_id ? getClient(s.client_id) : undefined;
+    if (!c) {
+      // sem sessão: vira visitante (cookie). Celular só quando for pedir orçamento.
+      c = createGuest();
+      setCookie(reply, CLIENT_COOKIE, createSession(c.id), SESSION_DAYS);
+    }
     req.client = c;
   });
 
@@ -102,8 +106,10 @@ export async function registerAuth(app: FastifyInstance) {
       if (e instanceof AuthError) return reply.code(e.httpStatus).send({ error: e.message, code: e.code });
       throw e;
     }
-    const c = loginClient(phone);
+    const cur = sessionFor(readCookie(req, CLIENT_COOKIE));
+    const c = loginClient(phone, cur?.client_id ?? null);
     if (b.consent) recordOptIn(phone, `checkbox no site: "${CONSENT_TEXT}"`);
+    deleteSession(readCookie(req, CLIENT_COOKIE)); // sessão nova no login (a de visitante não vale mais)
     setCookie(reply, CLIENT_COOKIE, createSession(c.id), SESSION_DAYS);
     return clientView(c);
   });

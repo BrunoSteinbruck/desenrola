@@ -97,7 +97,8 @@ export function dispatch(requestId: number) {
   const req = getRequest(requestId);
   if (!req) throw new OfferError('Pedido não encontrado', 404);
   if (req.status !== 'escolhendo') throw new OfferError(`Não dá pra pedir orçamento nessa etapa (${req.status})`, 409);
-  if (!clientOfRequest(requestId)) throw new OfferError('Pedido sem cliente: entra de novo com teu celular.', 409, 'login_required');
+  const client = clientOfRequest(requestId);
+  if (!client || client.is_guest) throw new OfferError('Pra eu avisar os profissionais, confirma teu celular.', 409, 'login_required');
   const selected = all<RpRow>("SELECT * FROM request_providers WHERE request_id = ? AND selected = 1 AND status = 'sugerido' ORDER BY position", requestId);
   if (!selected.length) throw new OfferError('Seleciona pelo menos um profissional', 400);
 

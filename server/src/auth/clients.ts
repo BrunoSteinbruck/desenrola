@@ -44,6 +44,8 @@ CREATE INDEX IF NOT EXISTS otp_phone ON otp_codes (phone, id);
 CREATE INDEX IF NOT EXISTS otp_ip ON otp_codes (ip, created_at);
 `);
 addColumn('requests', 'client_id', 'INTEGER');
+// visitante: entrou sem celular (cookie). Vira cliente de verdade quando confirma o código. phone = "guest:<aleatório>"
+addColumn('clients', 'is_guest', 'INTEGER NOT NULL DEFAULT 0');
 
 export type ClientRow = {
   id: number;
@@ -54,6 +56,7 @@ export type ClientRow = {
   onboarding_done: number;
   created_at: string;
   last_login_at: string | null;
+  is_guest: number;
 };
 
 export const getClient = (id: number) => get<ClientRow>('SELECT * FROM clients WHERE id = ?', id);
@@ -65,15 +68,23 @@ export function clientOfRequest(requestId: number) {
 }
 
 export function clientView(c: ClientRow) {
+  const guest = !!c.is_guest;
   return {
     id: c.id,
-    phone: c.phone,
+    is_guest: guest,
+    phone: guest ? '' : c.phone,
     user_name: c.name,
     user_city: c.city,
     user_neighborhood: c.neighborhood,
-    user_phone: c.phone,
+    user_phone: guest ? '' : c.phone,
     onboarding_done: !!c.onboarding_done,
   };
+}
+
+/** Visitante novo (sem celular). Pode conversar com o diagnóstico; pra avisar profissionais precisa entrar. */
+export function createGuest(): ClientRow {
+  const r = run('INSERT INTO clients (phone, is_guest, created_at) VALUES (?, 1, ?)', `guest:${randomBytes(12).toString('hex')}`, now());
+  return getClient(Number(r.lastInsertRowid))!;
 }
 
 export function updateClient(id: number, f: Partial<Pick<ClientRow, 'name' | 'city' | 'neighborhood' | 'onboarding_done'>>) {
@@ -148,27 +159,66 @@ export function verifyCode(phone: string, code: string): boolean {
   return Number(used.changes) === 1;
 }
 
-/** Cliente pelo telefone; cria se for a primeira vez. */
-export function loginClient(phone: string): ClientRow {
-  let c = clientByPhone(phone);
-  if (!c) {
-    const first = get<{ n: number }>('SELECT COUNT(*) AS n FROM clients')!.n === 0;
+/** Era de usuário único (sem login): o primeiro cliente de verdade herda os pedidos e o perfil que já existiam. */
+function inheritSingleUser(c: ClientRow) {
+  run('UPDATE requests SET client_id = ? WHERE client_id IS NULL', c.id);
+  updateClient(c.id, {
+    name: c.name || getSetting('user_name'),
+    city: c.neighborhood ? c.city : getSetting('user_city') || c.city || 'Porto Alegre',
+    neighborhood: c.neighborhood || getSetting('user_neighborhood'),
+    onboarding_done: c.onboarding_done || getSetting('onboarding_done') === '1' ? 1 : 0,
+  });
+}
+
+/**
+ * Login confirmado. Se quem confirmou era um visitante, os pedidos dele vão junto:
+ * - número já tem conta → pedidos e perfil do visitante passam pra ela e o visitante some;
+ * - número novo → o próprio visitante vira o cliente (mesmo id, mesmos pedidos).
+ */
+export function loginClient(phone: string, currentClientId: number | null = null): ClientRow {
+  const existing = clientByPhone(phone);
+  const cur = currentClientId ? getClient(currentClientId) : undefined;
+  const guest = cur?.is_guest ? cur : undefined;
+  const firstReal = get<{ n: number }>('SELECT COUNT(*) AS n FROM clients WHERE is_guest = 0')!.n === 0;
+  let c: ClientRow;
+  if (existing) {
+    if (guest) {
+      run('UPDATE requests SET client_id = ? WHERE client_id = ?', existing.id, guest.id);
+      updateClient(existing.id, {
+        name: existing.name || guest.name,
+        city: existing.neighborhood ? existing.city : guest.city || existing.city,
+        neighborhood: existing.neighborhood || guest.neighborhood,
+        onboarding_done: existing.onboarding_done || guest.onboarding_done,
+      });
+      run('DELETE FROM sessions WHERE client_id = ?', guest.id);
+      run('DELETE FROM clients WHERE id = ?', guest.id);
+    }
+    c = existing;
+  } else if (guest) {
+    run('UPDATE clients SET phone = ?, is_guest = 0 WHERE id = ?', phone, guest.id);
+    c = getClient(guest.id)!;
+    if (firstReal) inheritSingleUser(c);
+  } else {
     run('INSERT INTO clients (phone, created_at) VALUES (?, ?)', phone, now());
     c = clientByPhone(phone)!;
-    // era de usuário único (sem login): o primeiro cliente herda os pedidos e o perfil que já existiam
-    if (first) {
-      run('UPDATE requests SET client_id = ? WHERE client_id IS NULL', c.id);
-      updateClient(c.id, {
-        name: getSetting('user_name'),
-        city: getSetting('user_city') || 'Porto Alegre',
-        neighborhood: getSetting('user_neighborhood'),
-        onboarding_done: getSetting('onboarding_done') === '1' ? 1 : 0,
-      });
-      c = clientByPhone(phone)!;
-    }
+    if (firstReal) inheritSingleUser(c);
   }
   run('UPDATE clients SET last_login_at = ? WHERE id = ?', now(), c.id);
-  return c;
+  return getClient(c.id)!;
+}
+
+/** Visitantes que não fizeram nada em 7 dias somem (com as sessões). */
+export function sweepGuests() {
+  const old = new Date(Date.now() - 7 * 24 * 3600_000).toISOString();
+  const ids = all<{ id: number }>(
+    'SELECT c.id FROM clients c WHERE c.is_guest = 1 AND c.created_at < ? AND NOT EXISTS (SELECT 1 FROM requests r WHERE r.client_id = c.id)',
+    old,
+  ).map((r) => r.id);
+  for (const id of ids) {
+    run('DELETE FROM sessions WHERE client_id = ?', id);
+    run('DELETE FROM clients WHERE id = ?', id);
+  }
+  return ids.length;
 }
 
 // ---------- sessões ----------

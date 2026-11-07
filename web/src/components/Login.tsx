@@ -1,8 +1,27 @@
 import { useState, type FormEvent } from 'react';
 import { api, ApiError, type Settings } from '../api';
 
-/** Entrar com o celular: o código chega no WhatsApp. Primeira vez = cadastro. */
-export function Login({ onDone }: { onDone: (me: Settings) => void }) {
+/**
+ * Entrar com o celular: o código chega no WhatsApp. Primeira vez = cadastro.
+ * `inline`: dentro de um cartão (ex.: antes de pedir orçamentos), sem a caixa de página.
+ */
+export function Login({
+  onDone,
+  inline = false,
+  title = 'Entrar no Desenrola',
+  intro = 'Teu celular é teu login. Te mando um código no WhatsApp, sem senha.',
+  submitLabel = 'Entrar',
+  askName = false,
+}: {
+  onDone: (me: Settings) => void;
+  inline?: boolean;
+  title?: string;
+  intro?: string;
+  submitLabel?: string;
+  /** pede o nome junto (vai pro profissional quando o cliente aprovar) */
+  askName?: boolean;
+}) {
+  const [name, setName] = useState('');
   const [step, setStep] = useState<'phone' | 'code'>('phone');
   const [phone, setPhone] = useState('');
   const [consent, setConsent] = useState(false);
@@ -35,7 +54,9 @@ export function Login({ onDone }: { onDone: (me: Settings) => void }) {
     setBusy(true);
     setError(null);
     try {
-      onDone(await api.verifyCode(phone, code, consent));
+      let me = await api.verifyCode(phone, code, consent);
+      if (askName && name.trim() && !me.user_name) me = await api.putSettings({ user_name: name.trim() });
+      onDone(me);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Não consegui entrar agora.');
     } finally {
@@ -43,12 +64,22 @@ export function Login({ onDone }: { onDone: (me: Settings) => void }) {
     }
   };
 
-  return (
-    <section className="home">
+  const box = inline ? 'login-inline' : 'ob-box glass';
+  const H = inline ? 'h3' : 'h1';
+  const content = (
+    <>
       {step === 'phone' ? (
-        <form className="ob-box glass" onSubmit={requestCode}>
-          <h1>Entrar no Desenrola</h1>
-          <p>Teu celular é teu login. Te mando um código no WhatsApp, sem senha.</p>
+        <form className={box} onSubmit={requestCode}>
+          <H>{title}</H>
+          <p>{intro}</p>
+          {askName && (
+            <>
+              <label className="sr-only" htmlFor="login-name">
+                Teu nome
+              </label>
+              <input id="login-name" className="ob-input" autoComplete="given-name" placeholder="Teu nome" value={name} onChange={(e) => setName(e.target.value)} />
+            </>
+          )}
           <label className="sr-only" htmlFor="login-phone">
             Celular com DDD
           </label>
@@ -56,7 +87,7 @@ export function Login({ onDone }: { onDone: (me: Settings) => void }) {
             id="login-phone"
             className="ob-input"
             type="tel"
-            autoFocus
+            autoFocus={!askName}
             autoComplete="tel-national"
             placeholder="Celular com DDD"
             value={phone}
@@ -69,14 +100,14 @@ export function Login({ onDone }: { onDone: (me: Settings) => void }) {
           {error && <p className="error-text">{error}</p>}
           <div className="ob-actions">
             <span />
-            <button type="submit" className="btn dark" disabled={busy || digits.length < 10}>
+            <button type="submit" className="btn dark" disabled={busy || digits.length < 10 || (askName && !name.trim())}>
               {busy ? 'Enviando…' : 'Receber código'}
             </button>
           </div>
         </form>
       ) : (
-        <form className="ob-box glass" onSubmit={verify}>
-          <h1>Digita o código</h1>
+        <form className={box} onSubmit={verify}>
+          <H>Digita o código</H>
           <p>Mandei um código de 6 números pro WhatsApp do {phone}.</p>
           {devCode && <p className="note">Modo de teste (sem Twilio): o código é {devCode}.</p>}
           <label className="sr-only" htmlFor="login-code">
@@ -103,12 +134,13 @@ export function Login({ onDone }: { onDone: (me: Settings) => void }) {
                 Reenviar
               </button>
               <button type="submit" className="btn dark" disabled={busy || code.length !== 6}>
-                Entrar
+                {submitLabel}
               </button>
             </span>
           </div>
         </form>
       )}
-    </section>
+    </>
   );
+  return inline ? content : <section className="home">{content}</section>;
 }

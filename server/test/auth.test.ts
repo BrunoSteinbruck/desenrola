@@ -27,11 +27,49 @@ async function login(phone: string, consent = true) {
   return { cookie: cookieOf(r2), me: r2.json() };
 }
 
-test('sem login, as rotas do cliente respondem 401; health e auth ficam abertos', async () => {
-  assert.equal((await app.inject('/api/requests')).statusCode, 401);
-  assert.equal((await app.inject('/api/requests')).json().code, 'login_required');
+test('sem login vira visitante (cookie); visitante conversa mas não avisa profissional', async () => {
+  const r = await app.inject('/api/settings');
+  assert.equal(r.statusCode, 200);
+  assert.equal(r.json().is_guest, true);
+  assert.equal(r.json().user_phone, '');
+  const guest = cookieOf(r);
+  assert.match(guest, /^ds_session=/);
+  assert.deepEqual((await app.inject({ url: '/api/requests', headers: { cookie: guest } })).json(), []);
+  const ts = now();
+  const id = Number(run("INSERT INTO requests (status, client_id, title, category, created_at, updated_at) VALUES ('escolhendo', ?, 'Do visitante', 'eletricista', ?, ?)", r.json().id, ts, ts).lastInsertRowid);
+  const d = await app.inject({ method: 'POST', url: `/api/requests/${id}/dispatch`, headers: { cookie: guest }, payload: {} });
+  assert.equal(d.statusCode, 409);
+  assert.equal(d.json().code, 'login_required');
   assert.equal((await app.inject('/api/health')).statusCode, 200);
   assert.equal((await app.inject('/api/admin/providers')).statusCode, 401);
+});
+
+test('visitante confirma o celular: número novo vira o cliente e mantém os pedidos', async () => {
+  const g = await app.inject('/api/settings');
+  const cookie = cookieOf(g);
+  const ts = now();
+  const id = Number(run("INSERT INTO requests (status, client_id, title, created_at, updated_at) VALUES ('diagnostico', ?, 'Antes do login', ?, ?)", g.json().id, ts, ts).lastInsertRowid);
+  const code = (await app.inject({ method: 'POST', url: '/api/auth/request-code', headers: { cookie }, payload: { phone: '51991110040' } })).json().dev_code;
+  const v = await app.inject({ method: 'POST', url: '/api/auth/verify', headers: { cookie }, payload: { phone: '51991110040', code, consent: true } });
+  assert.equal(v.json().is_guest, false);
+  assert.equal(v.json().id, g.json().id, 'mesmo cliente');
+  const newCookie = cookieOf(v);
+  assert.notEqual(newCookie, cookie, 'sessão nova no login');
+  assert.equal((await app.inject({ url: '/api/requests', headers: { cookie } })).json().length, 0, 'cookie de visitante antigo não vale mais (vira outro visitante)');
+  assert.deepEqual((await app.inject({ url: '/api/requests', headers: { cookie: newCookie } })).json().map((r: { id: number }) => r.id), [id]);
+});
+
+test('visitante entra com número que já tem conta: pedidos passam pra conta e o visitante some', async () => {
+  const owner = await login('51991110050');
+  const g = await app.inject('/api/settings');
+  const cookie = cookieOf(g);
+  const ts = now();
+  const id = Number(run("INSERT INTO requests (status, client_id, title, created_at, updated_at) VALUES ('diagnostico', ?, 'Feito em outro aparelho', ?, ?)", g.json().id, ts, ts).lastInsertRowid);
+  const code = (await app.inject({ method: 'POST', url: '/api/auth/request-code', headers: { cookie }, payload: { phone: '51991110050' } })).json().dev_code;
+  const v = await app.inject({ method: 'POST', url: '/api/auth/verify', headers: { cookie }, payload: { phone: '51991110050', code, consent: true } });
+  assert.equal(v.json().id, owner.me.id);
+  assert.ok((await app.inject({ url: '/api/requests', headers: { cookie: owner.cookie } })).json().some((r: { id: number }) => r.id === id));
+  assert.equal(get('SELECT 1 FROM clients WHERE id = ?', g.json().id), undefined);
 });
 
 test('código: vai pelo template de autenticação, errado não entra, 5 tentativas no máximo', async () => {
@@ -103,7 +141,9 @@ test('dois clientes: cada um só vê e mexe nos próprios pedidos', async () => 
 
   // logout derruba a sessão
   await app.inject({ method: 'POST', url: '/api/auth/logout', headers: { cookie: b.cookie } });
-  assert.equal((await app.inject({ url: '/api/requests', headers: { cookie: b.cookie } })).statusCode, 401);
+  const after = await app.inject({ url: '/api/requests', headers: { cookie: b.cookie } });
+  assert.equal(after.json().length, 0);
+  assert.match(String(after.headers['set-cookie']), /ds_session=/, 'sessão encerrada: vira visitante novo');
 });
 
 test('admin: senha errada não entra; certa entra; sessão de cliente não abre o admin', async () => {
@@ -115,6 +155,7 @@ test('admin: senha errada não entra; certa entra; sessão de cliente não abre 
   const adm = cookieOf(ok);
   assert.equal((await app.inject({ url: '/api/admin/providers', headers: { cookie: adm } })).statusCode, 200);
   // e o admin não vira cliente
-  assert.equal((await app.inject({ url: '/api/requests', headers: { cookie: adm } })).statusCode, 401);
+  const asClient = await app.inject({ url: '/api/requests', headers: { cookie: adm } });
+  assert.deepEqual(asClient.json(), [], 'cookie de admin não é cliente (vira visitante vazio)');
   await app.close();
 });

@@ -32,8 +32,10 @@ entrada durável, fila de saída com retry, janela de 24h e opt-in/opt-out.
 
 ## Como funciona a V2
 
-0. **Login:** o cliente entra com o celular; o código chega no WhatsApp (template `codigo_verificacao`). Sem Twilio, o código aparece na própria tela.
-   Cada cliente só vê os próprios pedidos (rotas e tempo real). O primeiro cliente a entrar herda os pedidos da época de usuário único.
+0. **Sem login pra começar:** quem chega vira visitante (cookie) e já conversa com o diagnóstico.
+   O celular só é pedido em "Pedir orçamentos" (código no WhatsApp, template `codigo_verificacao`; sem Twilio aparece na tela),
+   e os pedidos do visitante passam pra conta. Cada cliente só vê os próprios pedidos (rotas e tempo real).
+   O primeiro cliente de verdade herda os pedidos da época de usuário único.
 1. **Admin** em `/admin` (senha `ADMIN_PASSWORD`; em dev qualquer senha): cadastra o profissional (nome, celular, categorias, bairros).
    Sai o template `boas_vindas`; só quando ele toca em **"Sim, quero receber"** vira ativo (a prova do opt-in fica guardada).
 2. **Cliente** descreve o problema no site → diagnóstico → "Ver eletricista da região" (matching no nosso banco, não manda nada) →

@@ -34,7 +34,7 @@ function ClientApp() {
   const [paymentsOn, setPaymentsOn] = useState(false);
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [auth, setAuth] = useState<'checking' | 'out' | 'in'>('checking');
-  const [panel, setPanel] = useState<'settings' | null>(null);
+  const [panel, setPanel] = useState<'settings' | 'login' | null>(null);
   const currentRef = useRef(currentId);
   currentRef.current = currentId;
 
@@ -167,12 +167,9 @@ function ClientApp() {
       <>
         {backdrop}
         {auth === 'out' && (
-          <Login
-            onDone={(me) => {
-              setSettings(me);
-              setAuth('in');
-            }}
-          />
+          <section className="home">
+            <p className="hint">Não consegui falar com o servidor. Ele está rodando?</p>
+          </section>
         )}
       </>
     );
@@ -201,13 +198,18 @@ function ClientApp() {
               </button>
             ))}
           </div>
+          {settings?.is_guest && (
+            <button type="button" className="nav-item wa-button" onClick={() => setPanel('login')}>
+              Entrar com celular
+            </button>
+          )}
           <button type="button" className="nav-item wa-button" onClick={() => setPanel('settings')}>
             <IconGear /> Configurações
           </button>
         </nav>
 
         <main className="main">
-          {currentId == null && settings && !settings.onboarding_done ? (
+          {currentId == null && settings && !settings.is_guest && !settings.onboarding_done ? (
             <Onboarding
               initial={{ user_name: settings.user_name, user_city: settings.user_city, user_neighborhood: settings.user_neighborhood }}
               onDone={() => api.getSettings().then(setSettings).catch(() => setSettings({ ...settings, onboarding_done: true }))}
@@ -230,11 +232,36 @@ function ClientApp() {
               </p>
             </section>
           ) : detail ? (
-            <Conversation detail={detail} streaming={streaming} waiting={waiting} paymentsOn={paymentsOn} onError={showError} />
+            <Conversation
+              detail={detail}
+              streaming={streaming}
+              waiting={waiting}
+              me={settings!}
+              onLoggedIn={(me) => {
+                setSettings(me);
+                void loadList();
+              }}
+              paymentsOn={paymentsOn}
+              onError={showError}
+            />
           ) : null}
         </main>
       </div>
 
+      {panel === 'login' && (
+        <Dialog title="Entrar" onClose={() => setPanel(null)}>
+          <Login
+            inline
+            title="Entrar com celular"
+            intro="Pra ver teus pedidos em qualquer aparelho. Te mando um código no WhatsApp, sem senha."
+            onDone={(me) => {
+              setSettings(me);
+              setPanel(null);
+              void loadList();
+            }}
+          />
+        </Dialog>
+      )}
       {panel === 'settings' && (
         <Settings
           onClose={() => {
@@ -292,12 +319,16 @@ function Settings({ onClose, onError }: { onClose: () => void; onError: (m: stri
   return (
     <Dialog title="Configurações" onClose={onClose}>
       {field('user_name', 'Teu nome', 'text', 'Bruno')}
-      <p className="note">
-        Celular {s.user_phone || '…'}: é teu login e vai pro profissional quando tu aprovar um orçamento.{' '}
-        <button type="button" className="link-btn" onClick={() => void api.logout().finally(() => location.reload())}>
-          Sair
-        </button>
-      </p>
+      {s.user_phone ? (
+        <p className="note">
+          Celular {s.user_phone}: é teu login e vai pro profissional quando tu aprovar um orçamento.{' '}
+          <button type="button" className="link-btn" onClick={() => void api.logout().finally(() => location.reload())}>
+            Sair
+          </button>
+        </p>
+      ) : (
+        <p className="note">Tu ainda não entrou com o celular. Ele só é pedido quando tu for pedir orçamentos.</p>
+      )}
       <div className="field-row">
         {field('user_city', 'Cidade', 'text', 'Porto Alegre')}
         {field('user_neighborhood', 'Bairro', 'text', 'Bom Fim')}
