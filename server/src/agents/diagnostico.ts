@@ -5,7 +5,7 @@ import { bus } from '../events.ts';
 import {
   get, getRequest, postMessage, run, updateRequest, setRequestStatus, type Card,
 } from '../db.ts';
-import { clientOfRequest } from '../auth/clients.ts';
+import { clientOfRequest, updateClient } from '../auth/clients.ts';
 import { withLock } from '../lib/lock.ts';
 import { nowBR } from '../lib/time.ts';
 import { shortTitle } from '../lib/title.ts';
@@ -132,6 +132,9 @@ async function turn(requestId: number, userText: string) {
       details_json: JSON.stringify({ urgencia: i.urgencia }),
     });
     if (cur.status !== 'diagnostico') setRequestStatus(requestId, 'diagnostico');
+    // lembra o lugar pro próximo pedido (visitante ou cliente que ainda não tinha bairro)
+    const owner = clientOfRequest(requestId);
+    if (owner && !owner.neighborhood) updateClient(owner.id, { neighborhood: i.bairro, city: i.cidade || owner.city });
     diagnosed = { profissao: i.profissao, resumo: i.resumo_para_prestador };
     return { content: 'Diagnóstico registrado. Agora diga ao usuário, em uma frase, qual profissional ele precisa e pergunte se pode chamar os da região. Ele confirma por um botão.' };
   };
