@@ -42,6 +42,7 @@ export const ENOUGH_FROM_DB = 3;
 /** uma busca vale por esse tempo pra mesma profissão + cidade (vazia vale menos: pode ter sido azar) */
 export const SEARCH_TTL_MS = 60 * 24 * 3600_000;
 export const EMPTY_SEARCH_TTL_MS = 7 * 24 * 3600_000;
+export const WEAK_SEARCH_TTL_MS = 24 * 3600_000;
 
 type Searcher = (category: string, neighborhood: string, city: string, want: number) => Promise<{ source: 'places' | 'web'; found: Candidate[] }>;
 let searcher: Searcher = async (category, neighborhood, city, want) =>
@@ -52,15 +53,22 @@ export function setSearcherForTests(fn: Searcher) {
   searcher = fn;
 }
 
-/** Já pesquisamos essa profissão nessa cidade há pouco? */
+/**
+ * Já pesquisamos essa profissão nessa cidade há pouco (e bem)?
+ * - busca que achou o bastante vale 60 dias;
+ * - busca fraca (menos que ENOUGH_FROM_DB) vale 1 dia: o próximo pedido tenta de novo e soma ao banco;
+ * - com o Google Places disponível, uma busca fraca feita pela web não conta: pesquisa de novo no Google.
+ */
 export function recentSearch(category: string, city: string) {
-  const row = get<{ found: number; searched_at: string }>(
-    'SELECT found, searched_at FROM lead_searches WHERE category_key = ? AND city_key = ? ORDER BY id DESC LIMIT 1',
+  const row = get<{ found: number; searched_at: string; source: string }>(
+    'SELECT found, searched_at, source FROM lead_searches WHERE category_key = ? AND city_key = ? ORDER BY id DESC LIMIT 1',
     areaKey(category), areaKey(city),
   );
   if (!row) return null;
+  const weak = row.found < ENOUGH_FROM_DB;
+  if (weak && row.source === 'web' && hasPlaces()) return null;
   const age = Date.now() - new Date(row.searched_at).getTime();
-  return age < (row.found > 0 ? SEARCH_TTL_MS : EMPTY_SEARCH_TTL_MS) ? row : null;
+  return age < (row.found === 0 ? EMPTY_SEARCH_TTL_MS : weak ? WEAK_SEARCH_TTL_MS : SEARCH_TTL_MS) ? row : null;
 }
 
 export type Suggestion = {

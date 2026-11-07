@@ -87,6 +87,11 @@ test('outra cidade pesquisa; busca vazia também fica guardada (por menos tempo)
   assert.ok(sug.recentSearch('técnico em máquina de lavar', 'Canoas'));
   run("UPDATE lead_searches SET searched_at = ? WHERE city_key = 'canoas'", new Date(Date.now() - 8 * 24 * 3600_000).toISOString());
   assert.equal(sug.recentSearch('técnico em máquina de lavar', 'Canoas'), null, 'busca vazia expira em 7 dias');
+  // busca fraca (1 achado) vale só 1 dia
+  run("INSERT INTO lead_searches (category_key, category, city_key, city, source, found, searched_at) VALUES ('chaveiro', 'chaveiro', 'canoas', 'Canoas', 'places', 1, ?)", new Date(Date.now() - 2 * 3600_000).toISOString());
+  assert.ok(sug.recentSearch('chaveiro', 'Canoas'));
+  run("UPDATE lead_searches SET searched_at = ? WHERE category_key = 'chaveiro'", new Date(Date.now() - 25 * 3600_000).toISOString());
+  assert.equal(sug.recentSearch('chaveiro', 'Canoas'), null, 'busca fraca expira em 1 dia');
 });
 
 test('clique em "Chamar no WhatsApp" conta como demanda pro recrutamento', () => {
