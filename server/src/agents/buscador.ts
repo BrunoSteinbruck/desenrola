@@ -1,11 +1,10 @@
-// F2 — Buscador: acha prestadores (Google Places ou busca web do Claude), ranqueia e valida WhatsApp.
+// Buscador (V1; na V2 serve só pra achar LEADS de recrutamento: ninguém daqui recebe mensagem automática).
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages/messages';
 import {
   all, areaKey, get, getRequest, now, postMessage, run, setRequestStatus, type ProviderRow,
 } from '../db.ts';
 import { hasPlaces, searchPlaces, type Candidate } from '../services/places.ts';
 import { toE164BR } from '../services/phone.ts';
-import { checkWhatsApp, isConnected } from '../whatsapp.ts';
 import { friendlyError, runTurn, textOf , MODELS } from './claude.ts';
 import { addDiagnosticoNote } from './diagnostico.ts';
 
@@ -58,18 +57,12 @@ export async function runSearch(requestId: number): Promise<void> {
   const freshRanked = fresh.map((p) => ({ p, s: score(p) })).sort((a, b) => b.s - a.s).map((x) => x.p);
 
   // 3) valida WhatsApp (se conectado; sem conexão, valida no disparo) e monta: até 3 nossos + novos
-  const connected = isConnected();
   const chosen: ProviderRow[] = [];
-  let noWa = 0;
+  const noWa = 0;
   const take = async (list: ProviderRow[], limit: number) => {
     for (const p of list) {
       if (chosen.length >= limit) return;
       if (chosen.some((c) => c.id === p.id)) continue;
-      if (connected && !p.wa_jid) {
-        const jid = await checkWhatsApp(p.phone_e164!);
-        if (jid === null) { noWa++; continue; }
-        if (jid) { run('UPDATE providers SET wa_jid = ? WHERE id = ?', jid, p.id); p.wa_jid = jid; }
-      }
       chosen.push(p);
     }
   };
@@ -85,11 +78,6 @@ export async function runSearch(requestId: number): Promise<void> {
       { name: 'Prestador de teste', phone: devPhone, rating: 5, reviews: 1, address: null, website: null, placeId: null, source: 'teste' },
       devPhone,
     );
-    if (connected && !dev.wa_jid) {
-      const jid = await checkWhatsApp(devPhone);
-      if (jid) { run('UPDATE providers SET wa_jid = ? WHERE id = ?', jid, dev.id); dev.wa_jid = jid; }
-      else if (jid === null) console.warn('[F2] DEV_TEST_PROVIDER_PHONE não tem WhatsApp');
-    }
     const idx = chosen.findIndex((p) => p.id === dev.id);
     if (idx >= 0) chosen.splice(idx, 1);
     chosen.unshift(dev);

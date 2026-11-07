@@ -47,6 +47,12 @@ export type MessageContext = {
 };
 type MessageHandler = (msg: InboundMessage, ctx: MessageContext) => Promise<void> | void;
 let messageHandler: MessageHandler | null = null;
+type ConsentHandler = (phone: string, kind: 'opt_in' | 'opt_out') => void;
+let consentHandler: ConsentHandler | null = null;
+/** Avisado quando alguém confirma ou cancela o recebimento (o marketplace ativa/desativa o prestador). */
+export function onConsentChange(fn: ConsentHandler) {
+  consentHandler = fn;
+}
 /** Os agentes (F3) se registram aqui pra receber o que não for comando de canal. */
 export function onInboundMessage(fn: MessageHandler) {
   messageHandler = fn;
@@ -59,11 +65,13 @@ async function handleMessage(msg: InboundMessage) {
 
   if (msg.buttonId === 'optin_sim') {
     recordOptIn(msg.from, `botão "${msg.buttonText ?? 'Sim, quero receber'}" (resposta a ${repliedTo?.template_key ?? 'mensagem'} #${repliedTo?.id ?? '?'})`);
+    consentHandler?.(msg.from, 'opt_in');
     enqueue({ to: msg.from, text: 'Combinado! Quando aparecer um pedido pra ti, te aviso por aqui. Se quiser parar, é só mandar SAIR.' });
     return;
   }
   if (msg.buttonId === 'optin_nao' || msg.buttonId === 'parar' || isCommand(said, STOP_WORDS)) {
     recordOptOut(msg.from, msg.buttonText ? `botão "${msg.buttonText}"` : said);
+    consentHandler?.(msg.from, 'opt_out');
     // a pessoa acabou de escrever, a janela está aberta: a confirmação pode ir em texto livre
     // (a única mensagem que ainda pode sair depois do opt-out; vai direto, sem passar pela trava)
     await channel.sendText(msg.from, 'Pronto, não vamos mais te mandar mensagens. Se mudar de ideia, manda VOLTAR.').catch(() => {});
@@ -71,6 +79,7 @@ async function handleMessage(msg: InboundMessage) {
   }
   if (isCommand(said, START_WORDS)) {
     recordOptIn(msg.from, `mensagem "${said.slice(0, 100)}"`);
+    consentHandler?.(msg.from, 'opt_in');
     enqueue({ to: msg.from, text: 'Pronto, voltaste a receber mensagens do Desenrola.' });
     return;
   }

@@ -10,18 +10,18 @@ import {
   setSetting, updateRp,
 } from './db.ts';
 import { runDiagnostico } from './agents/diagnostico.ts';
-import { runSearch } from './agents/buscador.ts';
-import { onManualReply, onProviderMessage, pushUserReply, recoverNegotiations, resume } from './agents/negociador.ts';
+import { pushUserReply, recoverNegotiations } from './agents/negociador.ts';
 import { approve, cancelRequest, FlowError, reject } from './agents/relator.ts';
 import { rate } from './agents/followup.ts';
-import { dispatch, paymentsEnabled, resumeAfterConnect } from './flow.ts';
-import { cancelPending, getPayment, hasMercadoPago, PaymentError, simulatePayment, sweepPayments } from './services/payments.ts';
+import { closeHandoff, dispatch, findProviders, OfferError, onInbound, openHandoff } from './marketplace/offers.ts';
+import { onProviderConsent, ProviderError } from './marketplace/providers.ts';
+import { registerAdminRoutes } from './marketplace/admin-routes.ts';
 import { startScheduler } from './services/scheduler.ts';
 import { hasPlaces } from './services/places.ts';
+import { toE164BR } from './services/phone.ts';
 import { normalizePlace } from './services/geo.ts';
 import { hasClaude } from './agents/claude.ts';
-import { connect, hasSavedSession, logout, setWhatsAppHandlers, waState } from './whatsapp.ts';
-import { channel, registerWhatsAppRoutes, startChannel } from './channel/index.ts';
+import { channel, onConsentChange, onInboundMessage, registerWhatsAppRoutes, startChannel } from './channel/index.ts';
 import { registerSiteGate } from './lib/gate.ts';
 
 const app = Fastify({
@@ -38,7 +38,8 @@ app.setErrorHandler((err, _req, reply) => {
     const code = (err as FlowError & { code?: string }).code;
     return reply.code(err.httpStatus).send({ error: err.message, ...(code ? { code } : {}) });
   }
-  if (err instanceof PaymentError) return reply.code(err.httpStatus).send({ error: err.message, code: err.code });
+  if (err instanceof OfferError) return reply.code(err.httpStatus).send({ error: err.message, ...(err.code ? { code: err.code } : {}) });
+  if (err instanceof ProviderError) return reply.code(err.httpStatus).send({ error: err.message });
   const status = (err as { statusCode?: number }).statusCode;
   if (status && status < 500) return reply.code(status).send({ error: (err as Error).message });
   app.log.error(err);
@@ -55,7 +56,7 @@ function requireRequest(id: number) {
 }
 function requireRp(requestId: number, rpId: number) {
   const rp = getRp(rpId);
-  if (!rp || rp.request_id !== requestId) throw new FlowError('Prestador não encontrado nesse pedido', 404);
+  if (!rp || rp.request_id !== requestId) throw new FlowError('Profissional não encontrado nesse pedido', 404);
   return rp;
 }
 const bg = (p: Promise<unknown>) => void p.catch((err) => app.log.error(err));
@@ -99,13 +100,10 @@ app.post('/api/requests/:id/messages', async (req) => {
   return { ok: true };
 });
 
+// V2: "Procurar" = matching no nosso banco de prestadores (não manda nada ainda)
 app.post('/api/requests/:id/search', async (req) => {
   const { id } = idParam.parse(req.params);
-  const r = requireRequest(id);
-  if (!r.category) throw new FlowError('Ainda não tenho o diagnóstico desse pedido', 409);
-  if (!['diagnostico', 'sem_prestadores', 'escolhendo'].includes(r.status)) throw new FlowError(`Busca não disponível nessa etapa (${r.status})`, 409);
-  bg(runSearch(id));
-  return { ok: true };
+  return findProviders(id);
 });
 
 app.post('/api/requests/:id/providers/:rpId', async (req) => {
@@ -113,20 +111,19 @@ app.post('/api/requests/:id/providers/:rpId', async (req) => {
   const { selected } = z.object({ selected: z.boolean() }).parse(req.body);
   const r = requireRequest(id);
   const rp = requireRp(id, rpId);
-  if (!['escolhendo', 'pagamento'].includes(r.status) || rp.status !== 'sugerido') throw new FlowError('A seleção não pode mais mudar', 409);
+  if (r.status !== 'escolhendo' || rp.status !== 'sugerido') throw new FlowError('A seleção não pode mais mudar', 409);
   updateRp(rpId, { selected: selected ? 1 : 0 });
   return { ok: true };
 });
 
+// V2: avisa os selecionados pelo template pedido_novo
 app.post('/api/requests/:id/dispatch', async (req) => {
   const { id } = idParam.parse(req.params);
-  const res = await dispatch(id);
-  return res.mode === 'payment' ? { ok: true, mode: res.mode, payment: paymentView(res.payment) } : res;
+  return { ok: true, ...dispatch(id) };
 });
 
 app.post('/api/requests/:id/cancel', async (req) => {
   const { id } = idParam.parse(req.params);
-  cancelPending(id);
   cancelRequest(id);
   return { ok: true };
 });
@@ -153,7 +150,9 @@ app.post('/api/requests/:id/quotes/:rpId/reply', async (req) => {
 app.post('/api/requests/:id/providers/:rpId/resume', async (req) => {
   const { id, rpId } = rpParam.parse(req.params);
   requireRp(id, rpId);
-  if (!resume(rpId)) throw new FlowError('Esse prestador não está pausado', 409);
+  const h = get<{ id: number }>("SELECT id FROM handoffs WHERE rp_id = ? AND status = 'aberto' ORDER BY id DESC LIMIT 1", rpId);
+  if (!h) throw new FlowError('Esse profissional não está com atendimento humano', 409);
+  closeHandoff(h.id, true);
   return { ok: true };
 });
 
@@ -169,31 +168,6 @@ app.post('/api/requests/:id/rating', async (req) => {
   return { ok: true };
 });
 
-// ---------- pagamentos ----------
-app.get('/api/payments/:id', async (req) => {
-  const { id } = idParam.parse(req.params);
-  const p = getPayment(id);
-  if (!p) throw new FlowError('Pagamento não encontrado', 404);
-  return { ...paymentView(p), request_id: p.request_id };
-});
-app.post('/api/payments/:id/simulate', async (req) => {
-  const { id } = idParam.parse(req.params);
-  const p = simulatePayment(id);
-  return { ...paymentView(p), request_id: p.request_id };
-});
-
-// ---------- WhatsApp ----------
-const waView = () => ({ ...waState(), warning_seen: getSetting('wa_warning_seen') === '1' });
-app.get('/api/whatsapp', async () => waView());
-app.post('/api/whatsapp/connect', async () => {
-  await connect();
-  return waView();
-});
-app.post('/api/whatsapp/logout', async () => {
-  await logout();
-  return waView();
-});
-
 // ---------- settings ----------
 // Corrige cidade/bairro digitados pro nome oficial (usado no onboarding antes do mapa)
 app.post('/api/geo/normalize', async (req) => {
@@ -207,8 +181,7 @@ app.put('/api/settings', async (req) => {
     user_name: z.string().trim().max(100).optional(),
     user_email: z.union([z.literal(''), z.string().trim().email()]).optional(),
     user_city: z.string().trim().max(100).optional(),
-    price_per_request: z.coerce.number().min(1).max(10000).optional(),
-    wa_warning_seen: z.boolean().optional(),
+    user_phone: z.union([z.literal(''), z.string().trim().min(8).max(30)]).optional(),
     user_neighborhood: z.string().trim().max(100).optional(),
     onboarding_done: z.boolean().optional(),
   }).parse(req.body ?? {});
@@ -217,8 +190,11 @@ app.put('/api/settings', async (req) => {
   if (b.user_name !== undefined) setSetting('user_name', b.user_name);
   if (b.user_email !== undefined) setSetting('user_email', b.user_email);
   if (b.user_city !== undefined) setSetting('user_city', b.user_city);
-  if (b.price_per_request !== undefined) setSetting('price_per_request', b.price_per_request.toFixed(2));
-  if (b.wa_warning_seen !== undefined) setSetting('wa_warning_seen', b.wa_warning_seen ? '1' : '0');
+  if (b.user_phone !== undefined) {
+    const e164 = b.user_phone ? toE164BR(b.user_phone) : '';
+    if (e164 === null) throw new FlowError('Celular inválido. Use DDD + número.', 400);
+    setSetting('user_phone', e164);
+  }
   return publicSettings();
 });
 
@@ -226,15 +202,15 @@ app.get('/api/health', async () => ({
   ok: true,
   claude: hasClaude(),
   places: hasPlaces(),
-  mercadopago: hasMercadoPago(),
   transcription: !!process.env.OPENAI_API_KEY,
   devTestProvider: !!process.env.DEV_TEST_PROVIDER_PHONE,
-  payments: paymentsEnabled(),
+  payments: false,
   whatsappOficial: channel.name,
 }));
 
 // ---------- WhatsApp oficial (V2): webhook da Twilio + rotas de dev ----------
 await registerWhatsAppRoutes(app);
+await registerAdminRoutes(app);
 
 // ---------- SSE ----------
 app.get('/api/stream', (req, reply: FastifyReply) => {
@@ -251,7 +227,6 @@ app.get('/api/stream', (req, reply: FastifyReply) => {
     res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
   };
   res.write('retry: 3000\n\n');
-  send({ type: 'wa.status', ...waState() });
   bus.on('event', send);
   const hb = setInterval(() => res.write(': ping\n\n'), 15_000);
   req.raw.on('close', () => {
@@ -273,17 +248,15 @@ if (process.env.NODE_ENV === 'production' && existsSync(dist)) {
 }
 
 // ---------- subida ----------
-setWhatsAppHandlers({
-  inbound: onProviderMessage,
-  manualReply: onManualReply,
-  connected: resumeAfterConnect,
+onInboundMessage(onInbound);
+onConsentChange((phone, kind) => {
+  onProviderConsent(phone, kind);
+  bus.publish({ type: 'admin.providers' });
 });
 if (!hasClaude()) app.log.warn('ANTHROPIC_API_KEY não configurada: os agentes vão responder com erro no chat.');
-sweepPayments();
 recoverNegotiations();
 startScheduler();
 startChannel(app.log);
-if (hasSavedSession()) void connect(); // reconecta só se já houver sessão salva
 
 const port = Number(process.env.PORT) || 3333;
 await app.listen({ port, host: process.env.HOST ?? '127.0.0.1' });

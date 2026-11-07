@@ -1,7 +1,5 @@
 import { EventEmitter } from 'node:events';
 
-export type WaStatus = 'desconectado' | 'qr' | 'conectando' | 'conectado';
-
 export type ServerEvent =
   | { type: 'message.created'; requestId: number; message: unknown }
   | { type: 'message.delta'; requestId: number; messageId: string; text: string }
@@ -9,8 +7,8 @@ export type ServerEvent =
   | { type: 'request.updated'; requestId: number }
   | { type: 'requests.changed' }
   | { type: 'provider.updated'; requestId: number; rpId: number }
-  | { type: 'wa.status'; status: WaStatus; me: string | null; qr: string | null }
-  | { type: 'wa.qr'; qr: string }
+  | { type: 'admin.inbox' }
+  | { type: 'admin.providers' }
   | { type: 'payment.updated'; requestId: number; paymentId: number; status: string };
 
 class Bus extends EventEmitter {

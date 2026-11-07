@@ -173,9 +173,7 @@ const SETTING_DEFAULTS: Record<string, string> = {
   user_city: 'Porto Alegre',
   user_neighborhood: '',
   onboarding_done: '0',
-  price_per_request: '15.00',
-  credits: '0',
-  wa_warning_seen: '0',
+  user_phone: '',
 };
 export function getSetting(key: string): string {
   const r = get<{ value: string }>('SELECT value FROM settings WHERE key = ?', key);
@@ -191,9 +189,7 @@ export function publicSettings() {
     user_city: getSetting('user_city'),
     user_neighborhood: getSetting('user_neighborhood'),
     onboarding_done: getSetting('onboarding_done') === '1',
-    price_per_request: Number(getSetting('price_per_request')) || 0,
-    credits: Number(getSetting('credits')) || 0,
-    wa_warning_seen: getSetting('wa_warning_seen') === '1',
+    user_phone: getSetting('user_phone'),
   };
 }
 
@@ -217,7 +213,6 @@ export const AGENT_ACTIVE: RpStatus[] = ['na_fila', 'contatado', 'respondeu', 'o
 export type Card =
   | { kind: 'diagnostico'; profissao: string; resumo: string }
   | { kind: 'providers' }
-  | { kind: 'whatsapp' }
   | { kind: 'payment'; paymentId: number }
   | { kind: 'progress' }
   | { kind: 'quote'; rpId: number }
@@ -244,6 +239,8 @@ export interface RpRow {
   quote_value_cents: number | null; quote_conditions: string | null; quote_availability: string | null;
   agent_messages_json: string; last_activity_at: string | null; last_inbound_at: string | null;
   reminder_sent_at: string | null; call_reply_sent_at: string | null; paused_from: string | null; pending_inbound_json: string;
+  // V2 (colunas criadas em marketplace/providers.ts)
+  offered_at?: string | null; viewed_at?: string | null; queued_at?: string | null;
 }
 
 export const getRequest = (id: number) => get<RequestRow>('SELECT * FROM requests WHERE id = ?', id);

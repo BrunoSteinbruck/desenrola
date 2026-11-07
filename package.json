@@ -19,7 +19,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^1.6.0",
     "@fastify/static": "^10.1.10",
-    "@whiskeysockets/baileys": "7.0.0-rc14",
     "fastify": "^5.12.8",
     "pino": "^10.4.0",
     "qrcode": "^1.5.4",

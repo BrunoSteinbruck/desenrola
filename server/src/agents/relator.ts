@@ -1,17 +1,14 @@
-// F6 — Relator: cards de orçamento, resumo comparativo, aprovar/recusar, fechamento.
+// Relator (V2): cards de orçamento, resumo comparativo e as decisões do cliente
+// (aprovar = fechar e trocar contatos; recusar; cancelar). Tudo que vai pro prestador fora da conversa é template.
 import {
-  all, getProvider, getRequest, getRp, now, postMessage, run, setRequestStatus, updateRp, type RpRow,
+  all, get, getProvider, getRequest, getRp, getSetting, now, postMessage, run, setRequestStatus, updateRp, type RpRow,
 } from '../db.ts';
-import { formatDateBR, reais } from '../lib/time.ts';
-import { enqueue } from '../whatsapp.ts';
-import { hasClaude, runTurn, textOf , MODELS } from './claude.ts';
+import { reais } from '../lib/time.ts';
+import { formatBR } from '../services/phone.ts';
+import { enqueue, OutboxError } from '../channel/index.ts';
+import { checkExhausted, OPEN_OFFER, promoteNext } from '../marketplace/offers.ts';
+import { hasClaude, runTurn, textOf, MODELS } from './claude.ts';
 import { pushEvent } from './negociador.ts';
-
-const THANKS_DISMISS = 'Oi! Obrigado pelo retorno e pela atenção. Acabei resolvendo com outro profissional, mas guardo teu contato pra próxima.';
-const THANKS_CANCEL = 'Oi! Obrigado pelo retorno. Acabei não precisando mais do serviço, mas guardo teu contato. Valeu!';
-
-/** Prestadores ainda "em aberto" (receberiam o obrigado). */
-const OPEN = ['contatado', 'respondeu', 'orcou', 'sem_resposta', 'aprovado'];
 
 export function onQuote(rpId: number) {
   const rp = getRp(rpId)!;
@@ -20,32 +17,41 @@ export function onQuote(rpId: number) {
   if (req.status === 'contatando') setRequestStatus(req.id, 'orcamentos');
   postMessage(req.id, 'assistant', `${prov.name} mandou orçamento: ${reais(rp.quote_value_cents)}.`, { kind: 'quote', rpId });
   scheduleComparison(req.id);
+  // a negociação ativa desse prestador terminou: se ele tem outro pedido na fila, começa
+  promoteNext(rp.provider_id);
 }
 
 // ---------- resumo comparativo (≥2 orçamentos) ----------
 const compTimers = new Map<number, NodeJS.Timeout>();
 function scheduleComparison(requestId: number) {
-  const t = compTimers.get(requestId);
-  if (t) clearTimeout(t);
-  compTimers.set(requestId, setTimeout(() => {
-    compTimers.delete(requestId);
-    void comparison(requestId);
-  }, 15_000));
+  clearTimeout(compTimers.get(requestId));
+  compTimers.set(
+    requestId,
+    setTimeout(() => {
+      compTimers.delete(requestId);
+      void comparison(requestId);
+    }, 15_000),
+  );
 }
 
-const COMP_SYSTEM = 'Tu compara orçamentos de prestadores de serviço pro cliente. Escreve 2 a 4 frases curtas, em português do Brasil, tom simples ("tu"), sem markdown nem listas: diz qual é mais barato, quem pode ir antes e o que chama atenção nas condições ou nas notas. Não decide pelo cliente.';
+const COMP_SYSTEM =
+  'Tu compara orçamentos de profissionais pro cliente. Escreve 2 a 4 frases curtas, em português do Brasil, tom simples ("tu"), sem markdown nem listas: diz qual é mais barato, quem pode ir antes e o que chama atenção nas condições ou nas notas. Não decide pelo cliente.';
 
 async function comparison(requestId: number) {
   if (!hasClaude()) return;
-  const quotes = all<RpRow & { name: string; rating_google: number | null; reviews_google: number | null; our_rating_avg: number | null }>(
-    `SELECT rp.*, p.name, p.rating_google, p.reviews_google, p.our_rating_avg FROM request_providers rp JOIN providers p ON p.id = rp.provider_id
-     WHERE rp.request_id = ? AND rp.quote_value_cents IS NOT NULL AND rp.status IN ('orcou','aprovado','respondeu','fechado')`,
+  const quotes = all<RpRow & { name: string; our_rating_avg: number | null; our_rating_count: number }>(
+    `SELECT rp.*, p.name, p.our_rating_avg, p.our_rating_count FROM request_providers rp JOIN providers p ON p.id = rp.provider_id
+     WHERE rp.request_id = ? AND rp.quote_value_cents IS NOT NULL AND rp.status IN ('orcou','respondeu','fechado')`,
     requestId,
   );
   if (quotes.length < 2) return;
   const req = getRequest(requestId)!;
   const list = quotes
-    .map((q) => `- ${q.name}: ${reais(q.quote_value_cents)}; condições: ${q.quote_conditions || '-'}; disponibilidade: ${q.quote_availability || '-'}; nota Google: ${q.rating_google ?? '-'} (${q.reviews_google ?? 0} avaliações)${q.our_rating_avg ? `; nota no Desenrola: ${q.our_rating_avg.toFixed(1)}` : ''}`)
+    .map(
+      (q) =>
+        `- ${q.name}: ${reais(q.quote_value_cents)}; condições: ${q.quote_conditions || '-'}; disponibilidade: ${q.quote_availability || '-'}` +
+        (q.our_rating_count ? `; nota no Desenrola: ${q.our_rating_avg!.toFixed(1)} (${q.our_rating_count})` : '; ainda sem avaliações no Desenrola'),
+    )
     .join('\n');
   try {
     const r = await runTurn({
@@ -58,102 +64,105 @@ async function comparison(requestId: number) {
     const text = textOf(r.message);
     if (text) postMessage(requestId, 'assistant', text, { kind: 'comparison' });
   } catch (err) {
-    console.warn('[F6] resumo falhou', err);
+    console.warn('[relator] resumo falhou', err);
   }
 }
 
-// ---------- ações do usuário ----------
+// ---------- ações do cliente ----------
 export class FlowError extends Error {
   constructor(message: string, public httpStatus = 400) {
     super(message);
   }
 }
 
+/** Avisa o prestador que o pedido acabou pra ele. Se a oferta nem tinha saído, só cancela o envio. */
+function closeOfferFor(rp: RpRow, motivo: string) {
+  const prov = getProvider(rp.provider_id);
+  const unsent = run("UPDATE wa_outbox SET state = 'blocked', last_error = 'pedido encerrado', updated_at = ? WHERE ref = ? AND state = 'queued'", now(), `rp:${rp.id}`);
+  updateRp(rp.id, { status: rp.status === 'fechado' ? 'fechado' : 'dispensado', pending_inbound_json: '[]' });
+  if (Number(unsent.changes) > 0 && rp.status === 'contatado') return; // a oferta nem chegou
+  if (!prov?.phone_e164) return;
+  const req = getRequest(rp.request_id)!;
+  try {
+    enqueue({
+      to: prov.phone_e164,
+      template: 'pedido_encerrado',
+      vars: { pedido: String(req.id), categoria: req.category ?? 'serviço', motivo },
+      ref: `rp:${rp.id}`,
+    });
+  } catch (e) {
+    if (!(e instanceof OutboxError)) throw e;
+  }
+  promoteNext(rp.provider_id);
+}
+
+const openOffers = (requestId: number, exceptRpId = -1) =>
+  all<RpRow>(
+    `SELECT * FROM request_providers WHERE request_id = ? AND id != ? AND status IN (${OPEN_OFFER.map(() => '?').join(',')})`,
+    requestId, exceptRpId, ...OPEN_OFFER,
+  );
+
+/** Aprovar = fechar: o prestador recebe nome, telefone e bairro do cliente; o cliente vê o telefone dele. */
 export function approve(requestId: number, rpId: number) {
   const rp = getRp(rpId);
-  if (!rp || rp.request_id !== requestId) throw new FlowError('Prestador não encontrado', 404);
-  if (rp.quote_value_cents == null) throw new FlowError('Esse prestador ainda não mandou orçamento', 409);
-  if (!['orcou', 'respondeu', 'aprovado'].includes(rp.status)) throw new FlowError(`Não dá pra aprovar nesse estado (${rp.status})`, 409);
+  if (!rp || rp.request_id !== requestId) throw new FlowError('Profissional não encontrado', 404);
+  if (rp.quote_value_cents == null) throw new FlowError('Esse profissional ainda não mandou orçamento', 409);
+  if (!['orcou', 'respondeu', 'pausado'].includes(rp.status)) throw new FlowError(`Não dá pra aprovar nesse estado (${rp.status})`, 409);
   const req = getRequest(requestId)!;
   if (['fechado', 'avaliado', 'cancelado'].includes(req.status)) throw new FlowError('Pedido já encerrado', 409);
-  if (rp.status === 'aprovado') return;
-  // só um aprovado por vez
-  for (const o of all<RpRow>("SELECT * FROM request_providers WHERE request_id = ? AND status = 'aprovado' AND id != ?", requestId, rpId)) {
-    updateRp(o.id, { status: 'orcou' });
-    pushEvent(o.id, 'O cliente escolheu outro orçamento por enquanto. Não fecha nada com esse prestador; se ele perguntar, diz em primeira pessoa que ainda tá vendo.');
-  }
-  updateRp(rpId, { status: 'aprovado', last_activity_at: now() });
-  setRequestStatus(requestId, 'aguardando_confirmacao');
-  postMessage(requestId, 'system_event', `Aprovado. Vou confirmar dia e horário com ${getProvider(rp.provider_id)?.name ?? 'o prestador'}.`);
-  pushEvent(rpId, 'O cliente decidiu aceitar este orçamento. Fala com o prestador como se a decisão fosse tua (ex.: "fechado, pode ser"), sem dizer que alguém aprovou. Confirma dia e horário e chama confirmar_fechamento quando ele confirmar.');
-}
-
-export function reject(requestId: number, rpId: number) {
-  const rp = getRp(rpId);
-  if (!rp || rp.request_id !== requestId) throw new FlowError('Prestador não encontrado', 404);
-  if (['fechado', 'recusado_pelo_usuario', 'dispensado'].includes(rp.status)) return;
-  const wasApproved = rp.status === 'aprovado';
-  updateRp(rpId, { status: 'recusado_pelo_usuario', last_activity_at: now() });
-  if (wasApproved) setRequestStatus(requestId, 'orcamentos');
-  pushEvent(rpId, 'O cliente decidiu não seguir com este orçamento. Agradece em primeira pessoa ("obrigado, vou pensar aqui") e encerra a conversa, sem insistir.');
-}
-
-/** Chamado pela tool confirmar_fechamento (já checou status 'aprovado'). */
-export function closeDeal(rpId: number, scheduledIso: string | null) {
-  const rp = getRp(rpId)!;
+  const name = getSetting('user_name').trim();
+  const phone = getSetting('user_phone');
+  if (!name || !phone) throw new FlowError('Informa teu nome e celular em Configurações: é o que o profissional recebe pra combinar contigo.', 409);
   const prov = getProvider(rp.provider_id)!;
+
+  enqueue({
+    to: prov.phone_e164!,
+    template: 'orcamento_aprovado',
+    vars: {
+      pedido: String(req.id),
+      valor: reais(rp.quote_value_cents),
+      nome_cliente: name.split(/\s+/)[0],
+      telefone_cliente: formatBR(phone),
+      bairro: req.neighborhood || req.city || '-',
+    },
+    ref: `rp:${rp.id}`,
+  });
   const ts = now();
   updateRp(rpId, { status: 'fechado', last_activity_at: ts });
-  setRequestStatus(rp.request_id, 'fechado', {
+  setRequestStatus(requestId, 'fechado', {
     closed_at: ts,
-    scheduled_for: scheduledIso,
     closed_provider_id: rp.provider_id,
     closed_value_cents: rp.quote_value_cents,
   });
   postMessage(
-    rp.request_id,
+    requestId,
     'assistant',
-    `Fechado com ${prov.name}${rp.quote_value_cents != null ? ` por ${reais(rp.quote_value_cents)}` : ''}${scheduledIso ? `, ${formatDateBR(scheduledIso)}` : ''}. Depois eu te pergunto como foi.`,
+    `Fechado com ${prov.name} por ${reais(rp.quote_value_cents)}. Mandei teu nome e celular pra ele; o telefone dele é ${prov.phone_e164 ? formatBR(prov.phone_e164) : '-'}. Combinem o horário direto. Depois eu te pergunto como foi.`,
   );
-  // dispensa os outros com um obrigado (ligado por padrão)
-  for (const o of all<RpRow>(
-    `SELECT * FROM request_providers WHERE request_id = ? AND id != ? AND status IN (${OPEN.map(() => '?').join(',')})`,
-    rp.request_id, rpId, ...OPEN,
-  )) {
-    updateRp(o.id, { status: 'dispensado' });
-    enqueue(o.id, THANKS_DISMISS, 5000 + Math.random() * 20_000);
-  }
-  // quem ainda nem foi contatado: tira da fila
-  dropUnsent(rp.request_id, rpId);
+  pushEvent(rpId, `O cliente aprovou este orçamento. O sistema já mandou ao profissional o nome, o telefone e o bairro do cliente (template "orçamento aprovado"). Daqui pra frente eles combinam direto; se o profissional escrever, responde curto e confirma que o contato foi enviado.`);
+  for (const o of openOffers(requestId, rpId)) closeOfferFor(o, 'o cliente escolheu outro orçamento');
 }
 
-function dropUnsent(requestId: number, exceptRpId: number) {
-  run(
-    `DELETE FROM outbox WHERE sent_at IS NULL AND request_provider_id IN
-       (SELECT id FROM request_providers WHERE request_id = ? AND id != ? AND status = 'na_fila')`,
-    requestId, exceptRpId,
-  );
-  for (const o of all<RpRow>("SELECT * FROM request_providers WHERE request_id = ? AND id != ? AND status = 'na_fila'", requestId, exceptRpId)) {
-    updateRp(o.id, { status: 'dispensado' });
-  }
+export function reject(requestId: number, rpId: number) {
+  const rp = getRp(rpId);
+  if (!rp || rp.request_id !== requestId) throw new FlowError('Profissional não encontrado', 404);
+  if (['fechado', 'recusado_pelo_usuario', 'dispensado'].includes(rp.status)) return;
+  closeOfferFor(rp, 'o cliente decidiu não seguir com este orçamento');
+  updateRp(rpId, { status: 'recusado_pelo_usuario', last_activity_at: now() });
+  checkExhausted(requestId);
 }
 
 export function cancelRequest(requestId: number) {
   const req = getRequest(requestId);
   if (!req) throw new FlowError('Pedido não encontrado', 404);
   if (req.status === 'cancelado') return;
-  // não contatados ainda: só tira da fila
-  dropUnsent(requestId, -1);
-  for (const o of all<RpRow>(
-    `SELECT * FROM request_providers WHERE request_id = ? AND status IN (${[...OPEN, 'fechado', 'pausado'].map(() => '?').join(',')})`,
-    requestId, ...OPEN, 'fechado', 'pausado',
-  )) {
-    updateRp(o.id, { status: 'dispensado' });
-    enqueue(o.id, THANKS_CANCEL, 3000 + Math.random() * 15_000);
-  }
-  for (const o of all<RpRow>("SELECT * FROM request_providers WHERE request_id = ? AND status = 'sugerido'", requestId)) {
-    updateRp(o.id, { status: 'excluido' });
-  }
+  const n = openOffers(requestId).length;
+  for (const o of openOffers(requestId)) closeOfferFor(o, 'o cliente cancelou o pedido');
+  for (const o of all<RpRow>("SELECT * FROM request_providers WHERE request_id = ? AND status = 'sugerido'", requestId)) updateRp(o.id, { status: 'excluido' });
   setRequestStatus(requestId, 'cancelado');
-  postMessage(requestId, 'system_event', 'Pedido cancelado. Avisei quem já tinha sido contatado.');
+  postMessage(requestId, 'system_event', n ? 'Pedido cancelado. Avisei os profissionais que estavam no pedido.' : 'Pedido cancelado.');
 }
+
+/** usado pelo admin/testes: quantos pedidos abertos um prestador tem */
+export const openCountFor = (providerId: number) =>
+  get<{ n: number }>(`SELECT COUNT(*) AS n FROM request_providers WHERE provider_id = ? AND status IN (${OPEN_OFFER.map((s) => `'${s}'`).join(',')})`, providerId)!.n;
