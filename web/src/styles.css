@@ -101,7 +101,6 @@ a { color: var(--blue); }
 /* Home */
 .home { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 24px 14vh; }
 .home h1 { margin: 0 0 28px; font-family: var(--font-head); font-size: 44px; font-weight: 800; letter-spacing: -0.035em; line-height: 1.08; text-align: center; color: var(--navy); }
-.hl { background: var(--navy); color: #fff; padding: 0 0.22em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 .home .hint { margin: 16px 0 0; font-size: 14px; color: var(--muted); text-align: center; }
 
 /* Composer */
