@@ -322,3 +322,15 @@ a { color: var(--blue); }
   .fx .beam, .fx .glow { opacity: 0; }
   .fx .ring { transition: none; }
 }
+
+/* ---------- /profissional ---------- */
+.pro { min-height: 100%; display: flex; flex-direction: column; }
+.pro-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 24px 0; }
+.pro .home { padding-top: 32px; padding-bottom: 8vh; }
+.pro .ob-box { max-width: 520px; }
+.pro-services { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.pro-services legend { font-size: 13px; font-weight: 500; color: var(--ink-2); margin-bottom: 8px; padding: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { min-height: 36px; padding: 0 14px; border-radius: var(--radius-pill); border: 1.5px solid var(--line); background: var(--surface); font-size: 14px; color: var(--ink); }
+.chip:hover { border-color: var(--sky-edge); }
+.chip.on { background: var(--navy); border-color: var(--navy); color: #fff; }

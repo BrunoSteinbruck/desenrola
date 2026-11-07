@@ -46,6 +46,8 @@ entrada durável, fila de saída com retry, janela de 24h e opt-in/opt-out.
 6. **Sem profissional na região:** o cliente vê contatos sugeridos (busca na internet guardada no banco; quem chama é o cliente, por `wa.me`).
    Esses contatos viram leads na aba **Recrutamento** do admin: onde falta profissional, quem os clientes mais quiseram chamar,
    convite pronto pra copiar e "Cadastrar" (vira profissional e recebe o pedido de confirmação).
+7. **Autocadastro** em `/profissional`: o profissional diz o que faz e onde atende, confirma o celular por código no WhatsApp
+   e marca o aceite (opt-in). Já entra ativo. O convite do recrutamento leva esse link.
 
 ## Testar sem incomodar ninguém
 

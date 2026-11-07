@@ -3,6 +3,7 @@ import { api, subscribe, STATUS_LABEL, type Message, type RequestDetail, type Re
 import { Conversation } from './components/Conversation';
 import { Onboarding } from './components/Onboarding';
 import { AdminGate } from './admin/AdminGate';
+import { ProSignup } from './pro/ProSignup';
 import { Login } from './components/Login';
 import { Composer, IconGear, IconMenu, IconPlus } from './components/ui';
 
@@ -31,6 +32,7 @@ export function BrandMark({ size = 30 }: { size?: number }) {
 
 export function App() {
   if (location.pathname.startsWith('/admin')) return <AdminGate />;
+  if (location.pathname.startsWith('/profissional')) return <ProSignup />;
   return <ClientApp />;
 }
 

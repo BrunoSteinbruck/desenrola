@@ -17,6 +17,7 @@ import { closeHandoff, dispatch, findProviders, OfferError, onInbound, openHando
 import { onProviderConsent, ProviderError } from './marketplace/providers.ts';
 import { registerAdminRoutes } from './marketplace/admin-routes.ts';
 import { recordSuggestionClick } from './marketplace/suggestions.ts';
+import { registerProRoutes } from './marketplace/pro-routes.ts';
 import { startScheduler } from './services/scheduler.ts';
 import { hasPlaces } from './services/places.ts';
 import { toE164BR } from './services/phone.ts';
@@ -219,6 +220,7 @@ export async function buildApp() {
   // ---------- WhatsApp oficial (V2): webhook da Twilio + rotas de dev ----------
   await registerWhatsAppRoutes(app);
   await registerAdminRoutes(app);
+  await registerProRoutes(app);
 
   // ---------- SSE ----------
   /** Tempo real. Cliente: só eventos dos pedidos dele. Admin: só os do admin. */

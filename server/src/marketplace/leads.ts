@@ -4,6 +4,7 @@
 import { all, areaKey, db, get, run } from '../db.ts';
 import { formatBR } from '../services/phone.ts';
 import { splitList } from './providers.ts';
+import { siteUrl } from './offers.ts';
 
 function addColumn(table: string, col: string, def: string) {
   const cols = all<{ name: string }>(`PRAGMA table_info(${table})`).map((c) => c.name);
@@ -60,7 +61,7 @@ export function inviteText(lead: { name: string; category: string; city: string;
   return (
     `Oi, ${first}! Aqui é o Bruno, do Desenrola. A gente avisa profissionais quando tem cliente da região precisando de ${lead.category}, ` +
     `e ${pedidos}. Quer receber esses pedidos no teu WhatsApp? Por enquanto é de graça. ` +
-    `Se topar, te cadastro e chega uma mensagem pra tu confirmar.`
+    `Se topar, o cadastro leva 2 minutos: ${siteUrl('/profissional')}`
   );
 }
 

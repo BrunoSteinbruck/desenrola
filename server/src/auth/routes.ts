@@ -38,7 +38,7 @@ function setCookie(reply: FastifyReply, name: string, value: string, maxAgeDays:
 }
 
 /** Rotas abertas (sem login). O resto de /api exige sessão de cliente; /api/admin exige sessão de admin. */
-const PUBLIC = ['/api/auth/', '/api/health', '/api/admin/login'];
+const PUBLIC = ['/api/auth/', '/api/pro/', '/api/health', '/api/admin/login'];
 
 /** Em dev, sem ADMIN_PASSWORD, qualquer senha entra no admin. Em produção a senha é obrigatória. */
 export function adminPasswordOk(given: string) {
