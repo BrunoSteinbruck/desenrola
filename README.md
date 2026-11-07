@@ -30,14 +30,23 @@ entrada durável, fila de saída com retry, janela de 24h e opt-in/opt-out.
   Os SIDs aprovados vão em `WA_TPL_*`.
 - **Deploy:** `render.yaml` (Blueprint). O site fica atrás de `SITE_PASSWORD` até existir login.
 
+## Como funciona a V2
+
+1. **Admin** em `/admin` (mesma senha do site): cadastra o profissional (nome, celular, categorias, bairros).
+   Sai o template `boas_vindas`; só quando ele toca em **"Sim, quero receber"** vira ativo (a prova do opt-in fica guardada).
+2. **Cliente** descreve o problema no site → diagnóstico → "Ver eletricista da região" (matching no nosso banco, não manda nada) →
+   "Pedir orçamentos" (template `pedido_novo` pros selecionados).
+3. O profissional toca em **"Ver detalhes"** e o agente do Desenrola negocia (uma negociação por profissional; os outros pedidos dele esperam na fila).
+4. O cliente **aprova** → o profissional recebe nome, celular e bairro do cliente (`orcamento_aprovado`) e os outros recebem `pedido_encerrado`.
+5. Se o profissional pedir uma pessoa ou sair do assunto, a conversa vai pro **inbox do admin** (aba Conversas).
+
 ## Testar sem incomodar ninguém
 
-1. Ponha um segundo celular teu em `DEV_TEST_PROVIDER_PHONE` (ex.: `51999998888`). Ele aparece como "Prestador de teste" no topo da busca.
-2. Sem `MP_ACCESS_TOKEN`, o Pix é simulado (botão "Simular pagamento").
-3. Desmarque os prestadores reais na lista antes de clicar em "Chamar no WhatsApp", e deixe só o de teste.
+- Sem credencial da Twilio nada sai (stub). Cadastre um número de teste no `/admin` e simule as respostas dele com
+  `POST /api/dev/whatsapp/inbound` (o `repliedToMsgId` de um clique vem de `GET /api/dev/whatsapp/outbox`).
+- Prestadores achados por busca (os da V1) ficam como **lead** e nunca recebem mensagem.
 
 ## Avisos
 
-- A conexão do WhatsApp é não oficial (aparelho vinculado) e pode levar a banimento do número. Use poucos contatos por pedido.
-- A sessão fica em `data/wa-auth/`. Apague essa pasta (ou use "Desconectar") para desvincular.
+- A V2 não usa mais o WhatsApp do usuário. A sessão antiga da V1 continua em `data/wa-auth/` (serve pra branch `v1`); a V2 não mexe nela.
 - Ligações não são atendidas.

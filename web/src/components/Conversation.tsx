@@ -1,19 +1,17 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { api, STATUS_LABEL, type Card, type Message, type RequestDetail, type WaState } from '../api';
+import { api, STATUS_LABEL, type Card, type Message, type RequestDetail } from '../api';
 import { CardView } from './Cards';
 import { Composer } from './ui';
 
 export function Conversation({
   detail,
   streaming,
-  wa,
   waiting,
   paymentsOn,
   onError,
 }: {
   detail: RequestDetail;
   streaming: Message | null;
-  wa: WaState;
   waiting: boolean;
   paymentsOn: boolean;
   onError: (m: string) => void;
@@ -34,8 +32,12 @@ export function Conversation({
   }, [messages.length, streaming?.content, detail.providers, detail.payment?.status]);
 
   const status = useMemo(() => {
-    const active = detail.providers.filter((p) => p.selected && ['contatado', 'respondeu', 'orcou'].includes(p.status)).length;
-    if (request.status === 'contatando' && active) return `Conversando com ${active} ${active === 1 ? 'profissional' : 'profissionais'}`;
+    const ps = detail.providers.filter((p) => p.selected && p.status !== 'sugerido' && p.status !== 'excluido');
+    if (request.status === 'contatando' || request.status === 'orcamentos') {
+      const viu = ps.filter((p) => !['contatado', 'sem_resposta'].includes(p.status)).length;
+      const orcou = ps.filter((p) => p.quote_value_cents != null).length;
+      return `${ps.length} ${ps.length === 1 ? 'avisado' : 'avisados'} · ${viu} ${viu === 1 ? 'viu' : 'viram'} · ${orcou} ${orcou === 1 ? 'orçamento' : 'orçamentos'}`;
+    }
     return STATUS_LABEL[request.status] ?? '';
   }, [detail.providers, request.status]);
 
@@ -52,9 +54,7 @@ export function Conversation({
   // O que o agente está fazendo agora (sem depender de evento: deriva do estado do pedido)
   const last = messages[messages.length - 1];
   const activity =
-    request.status === 'buscando'
-      ? 'Procurando profissionais, pode levar até 1 minuto'
-      : waiting || (last?.role === 'user' && !closed)
+    waiting || (last?.role === 'user' && !closed)
         ? 'Pensando'
         : null;
 
@@ -72,7 +72,6 @@ export function Conversation({
               m={m}
               ctx={{
                 detail,
-                wa,
                 paymentsOn,
                 onError,
                 isLatest: (kind) => lastIndexByKind.get(kind) === m.id,

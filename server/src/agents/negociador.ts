@@ -36,7 +36,9 @@ Ferramentas:
 - registrar_orcamento: quando o profissional passar um valor (mesmo que seja só a visita ou uma faixa). Registra de novo se mudar.
 - perguntar_ao_cliente: pra tudo que depende do cliente ou não está no pedido (fotos, voltagem, horário, acesso ao local, aceitar condição).
 - marcar_sem_interesse: quando o profissional disser que não atende, não tem agenda ou recusar.
-- escalar_para_humano: quando ele pedir pra falar com uma pessoa, estiver irritado, reclamar, ou falar de assunto fora do pedido (cadastro, pagamento, problema com o Desenrola).`;
+- escalar_para_humano: SÓ quando o profissional pedir pra falar com uma pessoa, estiver irritado ou reclamando, ou trouxer assunto fora do pedido (cadastro, pagamento, problema com o Desenrola). Resposta do cliente, pergunta técnica, orçamento e pergunta se é robô NÃO são motivo: tu mesmo resolve.
+
+Quando chegar uma resposta do [cliente], repassa ao profissional com as palavras do cliente e segue a negociação (ex.: "O cliente respondeu que é 220V. Com isso, consegue me passar o valor?").`;
 
 const TOOLS = [
   strictTool('registrar_orcamento', 'Registra o orçamento do profissional e mostra pro cliente no site.', {
@@ -50,7 +52,7 @@ const TOOLS = [
   strictTool('marcar_sem_interesse', 'Marca que o profissional não vai atender esse pedido.', {
     motivo: { type: 'string' },
   }),
-  strictTool('escalar_para_humano', 'Passa a conversa pra uma pessoa da equipe do Desenrola. Depois disso tu não responde mais.', {
+  strictTool('escalar_para_humano', 'Passa a conversa pra uma pessoa da equipe do Desenrola (só se o profissional pedir uma pessoa, estiver irritado ou o assunto for fora do pedido). Depois disso tu não responde mais.', {
     motivo: { type: 'string', description: 'Por que precisa de uma pessoa, em uma frase.' },
   }),
 ];
@@ -249,7 +251,7 @@ async function handleTool(rpId: number, b: ToolUseBlock): Promise<{ content: str
       onQuote(rpId);
       return {
         content:
-          'Orçamento registrado e mostrado ao cliente. Agradece e explica, numa frase, que o cliente vai comparar e que, se ele aprovar, o Desenrola manda o contato do cliente por aqui. Não promete que vai ser aprovado.',
+          'Orçamento registrado e mostrado ao cliente. Agradece e explica, numa frase, que o cliente vai comparar e que, se ele aprovar, o Desenrola manda o contato do cliente por aqui. Não comenta chance de aprovação.',
       };
     }
     case 'perguntar_ao_cliente': {

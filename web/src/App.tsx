@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { api, subscribe, STATUS_LABEL, type Message, type RequestDetail, type RequestSummary, type Settings as SettingsData, type StreamEvent, type WaState } from './api';
+import { api, subscribe, STATUS_LABEL, type Message, type RequestDetail, type RequestSummary, type Settings as SettingsData, type StreamEvent } from './api';
 import { Conversation } from './components/Conversation';
 import { Onboarding } from './components/Onboarding';
-import { WhatsappPanel } from './components/Cards';
+import { Admin } from './admin/Admin';
 import { Composer, IconGear, IconMenu, IconPlus } from './components/ui';
 
 const idFromHash = () => {
@@ -10,19 +10,29 @@ const idFromHash = () => {
   return m ? Number(m[1]) : null;
 };
 
+/** "5551999998888" -> "(51) 99999-8888" */
+export const formatPhone = (e164: string) => {
+  const d = e164.replace(/\D/g, '').replace(/^55/, '');
+  return d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` : d.length === 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : e164;
+};
+
 export function App() {
+  if (location.pathname.startsWith('/admin')) return <Admin />;
+  return <ClientApp />;
+}
+
+function ClientApp() {
   const [requests, setRequests] = useState<RequestSummary[]>([]);
   const [currentId, setCurrentId] = useState<number | null>(idFromHash);
   const [detail, setDetail] = useState<RequestDetail | null>(null);
   const [streaming, setStreaming] = useState<Message | null>(null);
   const [waiting, setWaiting] = useState(false);
-  const [wa, setWa] = useState<WaState>({ status: 'desconectado', qr: null, me: null });
   const [toast, setToast] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [noKey, setNoKey] = useState(false);
   const [paymentsOn, setPaymentsOn] = useState(false);
   const [settings, setSettings] = useState<SettingsData | null>(null);
-  const [panel, setPanel] = useState<'whatsapp' | 'settings' | null>(null);
+  const [panel, setPanel] = useState<'settings' | null>(null);
   const currentRef = useRef(currentId);
   currentRef.current = currentId;
 
@@ -59,7 +69,6 @@ export function App() {
 
   useEffect(() => {
     void loadList();
-    api.whatsapp().then(setWa).catch(() => {});
     api
       .health()
       .then((h) => {
@@ -109,14 +118,10 @@ export function App() {
         case 'requests.changed':
           void loadList();
           break;
-        case 'wa.status':
-          setWa((w) => ({ ...w, status: e.status, qr: e.qr, me: e.me }));
-          break;
       }
     };
     return subscribe(onEvent, () => {
       void loadList();
-      api.whatsapp().then(setWa).catch(() => {});
       if (currentRef.current != null) loadDetail(currentRef.current);
     });
   }, [loadList, loadDetail]);
@@ -136,9 +141,6 @@ export function App() {
       showError('Não consegui começar agora. O servidor está rodando?');
     }
   };
-
-  const waLabel =
-    wa.status === 'conectado' ? 'WhatsApp conectado' : wa.status === 'qr' ? 'Escaneie o QR code' : wa.status === 'conectando' ? 'Conectando…' : 'Conectar WhatsApp';
 
   return (
     <>
@@ -167,10 +169,6 @@ export function App() {
               </button>
             ))}
           </div>
-          <button type="button" className="nav-item wa-button" onClick={() => setPanel('whatsapp')}>
-            <span className={`dot${wa.status === 'conectado' ? ' on' : wa.status === 'desconectado' ? '' : ' wait'}`} aria-hidden="true" />
-            {waLabel}
-          </button>
           <button type="button" className="nav-item wa-button" onClick={() => setPanel('settings')}>
             <IconGear /> Configurações
           </button>
@@ -179,7 +177,7 @@ export function App() {
         <main className="main">
           {currentId == null && settings && !settings.onboarding_done ? (
             <Onboarding
-              initial={{ user_name: settings.user_name, user_city: settings.user_city, user_neighborhood: settings.user_neighborhood }}
+              initial={{ user_name: settings.user_name, user_phone: settings.user_phone ? formatPhone(settings.user_phone) : '', user_city: settings.user_city, user_neighborhood: settings.user_neighborhood }}
               onDone={() => api.getSettings().then(setSettings).catch(() => setSettings({ ...settings, onboarding_done: true }))}
             />
           ) : currentId == null ? (
@@ -196,31 +194,15 @@ export function App() {
               <p className="hint">
                 {noKey
                   ? 'Falta a ANTHROPIC_API_KEY no arquivo .env — sem ela eu não consigo responder.'
-                  : paymentsOn
-                    ? 'O diagnóstico é grátis. Você só paga quando eu chamar os profissionais.'
-                    : 'Eu falo com os profissionais por ti e te trago os orçamentos.'}
+                  : 'Eu aviso profissionais da tua região e te trago os orçamentos. Tu compara e escolhe.'}
               </p>
             </section>
           ) : detail ? (
-            <Conversation detail={detail} streaming={streaming} wa={wa} waiting={waiting} paymentsOn={paymentsOn} onError={showError} />
+            <Conversation detail={detail} streaming={streaming} waiting={waiting} paymentsOn={paymentsOn} onError={showError} />
           ) : null}
         </main>
       </div>
 
-      {panel === 'whatsapp' && (
-        <Dialog title="WhatsApp" onClose={() => setPanel(null)}>
-          <WhatsappPanel wa={wa} onError={showError} />
-          {wa.status === 'conectado' && (
-            <button
-              type="button"
-              className="btn ghost"
-              onClick={() => api.logoutWhatsapp().catch(() => showError('Não consegui desconectar.'))}
-            >
-              Desconectar
-            </button>
-          )}
-        </Dialog>
-      )}
       {panel === 'settings' && (
         <Settings
           onClose={() => {
@@ -266,7 +248,7 @@ function Settings({ onClose, onError }: { onClose: () => void; onError: (m: stri
   useEffect(() => {
     api
       .getSettings()
-      .then((d) => setS({ user_name: d.user_name, user_city: d.user_city, user_neighborhood: d.user_neighborhood, user_email: d.user_email }))
+      .then((d) => setS({ user_name: d.user_name, user_city: d.user_city, user_neighborhood: d.user_neighborhood, user_phone: d.user_phone ? formatPhone(d.user_phone) : '' }))
       .catch(() => {});
   }, []);
   const field = (key: string, label: string, type = 'text', placeholder = '') => (
@@ -277,12 +259,12 @@ function Settings({ onClose, onError }: { onClose: () => void; onError: (m: stri
   );
   return (
     <Dialog title="Configurações" onClose={onClose}>
-      {field('user_name', 'Teu nome (eu me apresento como teu assistente)', 'text', 'Bruno')}
+      {field('user_name', 'Teu nome', 'text', 'Bruno')}
+      {field('user_phone', 'Celular (vai pro profissional quando tu aprovar um orçamento)', 'tel', '(51) 99999-8888')}
       <div className="field-row">
         {field('user_city', 'Cidade', 'text', 'Porto Alegre')}
         {field('user_neighborhood', 'Bairro', 'text', 'Bom Fim')}
       </div>
-      {field('user_email', 'E-mail (exigido pelo Pix)', 'email')}
       <button
         type="button"
         className="btn dark"
@@ -292,10 +274,10 @@ function Settings({ onClose, onError }: { onClose: () => void; onError: (m: stri
               user_name: s.user_name ?? '',
               user_city: s.user_city ?? '',
               user_neighborhood: s.user_neighborhood ?? '',
-              user_email: s.user_email ?? '',
+              user_phone: s.user_phone ?? '',
             })
             .then(onClose)
-            .catch(() => onError('Não consegui salvar.'))
+            .catch((e) => onError(e instanceof Error && e.message ? e.message : 'Não consegui salvar.'))
         }
       >
         Salvar

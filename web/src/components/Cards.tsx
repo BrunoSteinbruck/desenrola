@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { api, brl, phoneFromJid, ApiError, PROVIDER_STATUS_LABEL, type Card, type RequestDetail, type RequestProvider, type WaState } from '../api';
+import { api, brl, ApiError, PROVIDER_STATUS_LABEL, type Card, type RequestDetail, type RequestProvider } from '../api';
 import { IconStar } from './ui';
 
 type Ctx = {
   detail: RequestDetail;
-  wa: WaState;
   paymentsOn: boolean;
   isLatest: (kind: Card['kind']) => boolean;
   onError: (msg: string) => void;
@@ -13,11 +12,7 @@ type Ctx = {
 const rating = (p: RequestProvider) =>
   p.our_rating_avg != null
     ? `${p.our_rating_avg.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} no Desenrola`
-    : p.rating_google != null
-    ? `${p.rating_google.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}${
-        p.reviews_google ? ` · ${p.reviews_google} ${p.reviews_google === 1 ? 'avaliação' : 'avaliações'}` : ''
-      }`
-    : 'Sem nota no Google';
+    : 'Novo no Desenrola';
 
 function useAction(onError: (m: string) => void) {
   const [busy, setBusy] = useState(false);
@@ -27,8 +22,6 @@ function useAction(onError: (m: string) => void) {
     try {
       await fn();
     } catch (e) {
-      if (e instanceof ApiError && e.code === 'wa_not_connected') return; // o servidor posta o cartão do QR
-      if (e instanceof ApiError && e.code === 'email_required') return onError('Preciso do teu e-mail pro Pix. Coloca em Configurações.');
       onError(e instanceof ApiError ? e.message : 'Não consegui fazer isso agora.');
     } finally {
       setBusy(false);
@@ -43,10 +36,8 @@ export function CardView({ card, ctx }: { card: Card; ctx: Ctx }) {
       return <DiagnosticoCard card={card} ctx={ctx} />;
     case 'providers':
       return <ProvidersCard ctx={ctx} />;
-    case 'whatsapp':
-      return <WhatsappCard ctx={ctx} />;
     case 'payment':
-      return <PaymentCard ctx={ctx} />;
+      return null; // Pix do cliente saiu na V2 (cobrança passa pro prestador, F6)
     case 'progress':
       return <ProgressCard ctx={ctx} />;
     case 'quote':
@@ -64,12 +55,12 @@ export function CardView({ card, ctx }: { card: Card; ctx: Ctx }) {
 
 function DiagnosticoCard({ card, ctx }: { card: Extract<Card, { kind: 'diagnostico' }>; ctx: Ctx }) {
   const { busy, run } = useAction(ctx.onError);
-  const pending = ctx.detail.request.status === 'diagnostico' || ctx.detail.request.status === 'sem_prestadores';
+  const pending = ctx.detail.request.status === 'diagnostico' || (ctx.detail.request.status === 'sem_prestadores' && ctx.isLatest('diagnostico'));
   if (!pending) return null;
   return (
     <div className="actions">
       <button type="button" className="btn dark" disabled={busy} onClick={() => run(() => api.search(ctx.detail.request.id))}>
-        {busy ? 'Procurando…' : `Procurar ${card.profissao.toLowerCase()}`}
+        {busy ? 'Procurando…' : `Ver ${card.profissao.toLowerCase()} da região`}
       </button>
     </div>
   );
@@ -78,9 +69,9 @@ function DiagnosticoCard({ card, ctx }: { card: Extract<Card, { kind: 'diagnosti
 function ProvidersCard({ ctx }: { ctx: Ctx }) {
   const { busy, run } = useAction(ctx.onError);
   const { request, providers } = ctx.detail;
-  // em 'pagamento' também dá pra chamar de novo (no modo grátis isso pula o Pix pendente)
-  const editable = request.status === 'escolhendo' || (request.status === 'pagamento' && !ctx.paymentsOn);
-  const list = providers.filter((p) => p.status !== 'sem_whatsapp' || editable);
+  const editable = request.status === 'escolhendo';
+  if (!editable && !ctx.isLatest('providers')) return null;
+  const list = providers.filter((p) => editable || p.status !== 'excluido');
   const selected = providers.filter((p) => p.selected).length;
   if (!list.length) return null;
   return (
@@ -106,134 +97,10 @@ function ProvidersCard({ ctx }: { ctx: Ctx }) {
             disabled={busy || selected === 0}
             onClick={() => run(() => api.dispatch(request.id))}
           >
-            Chamar no WhatsApp
+            {selected === 1 ? 'Pedir orçamento' : 'Pedir orçamentos'}
           </button>
         </div>
       )}
-    </div>
-  );
-}
-
-export function WhatsappPanel({ wa, onError }: { wa: WaState; onError: (m: string) => void }) {
-  const { busy, run } = useAction(onError);
-  if (wa.status === 'conectado') {
-    return <p className="msg-event">WhatsApp conectado{wa.me ? ` · ${phoneFromJid(wa.me)}` : ''}</p>;
-  }
-  if (wa.status === 'qr' && wa.qr) {
-    return (
-      <div className="qr-wrap">
-        <div className="qr">
-          <img src={wa.qr} alt="QR code para conectar o WhatsApp" />
-        </div>
-        <div style={{ flex: '1 1 220px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <ol className="steps">
-            <li>Abre o WhatsApp no celular</li>
-            <li>Toca em Aparelhos conectados</li>
-            <li>Conectar um aparelho e aponta pra cá</li>
-          </ol>
-          <p className="warning">
-            Conexão não oficial (aparelho vinculado). Eu só leio as conversas com os profissionais que tu escolher.
-          </p>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="actions" style={{ alignItems: 'center' }}>
-      <button
-        type="button"
-        className="btn dark"
-        disabled={busy || wa.status === 'conectando'}
-        onClick={() => run(() => api.connectWhatsapp())}
-      >
-        {wa.status === 'conectando' ? 'Conectando…' : 'Mostrar QR code'}
-      </button>
-    </div>
-  );
-}
-
-function WhatsappCard({ ctx }: { ctx: Ctx }) {
-  if (ctx.wa.status === 'conectado' && !ctx.isLatest('whatsapp')) return null;
-  return (
-    <div className="card glass">
-      <div className="card-body">
-        <WhatsappPanel wa={ctx.wa} onError={ctx.onError} />
-      </div>
-    </div>
-  );
-}
-
-function PaymentCard({ ctx }: { ctx: Ctx }) {
-  const { busy, run } = useAction(ctx.onError);
-  const [copied, setCopied] = useState(false);
-  const p = ctx.detail.payment;
-  if (!p) return null;
-  // modo grátis: cobranças antigas não aparecem mais
-  if (!ctx.paymentsOn && p.status !== 'approved') return null;
-  if (p.status === 'approved' || p.status === 'pago') {
-    return <p className="msg-event">Pix de {brl(p.amount_cents)} confirmado.</p>;
-  }
-  if (p.status === 'expired' || p.status === 'expirado' || p.status === 'cancelled') {
-    return (
-      <div className="card glass">
-        <div className="card-body">
-          <p className="quote-text">O Pix expirou.</p>
-          <div className="actions">
-            <button type="button" className="btn dark" disabled={busy} onClick={() => run(() => api.dispatch(ctx.detail.request.id))}>
-              Gerar outro Pix
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="card glass">
-      <div className="card-body">
-        <div className="quote-top">
-          <span className="who">Pix pra chamar os profissionais</span>
-          <span className="price">{brl(p.amount_cents)}</span>
-        </div>
-        {p.provider === 'simulado' ? (
-          <>
-            <p className="quote-text">Modo de teste: nenhum dinheiro de verdade é cobrado.</p>
-            <div className="actions">
-              <button type="button" className="btn primary" disabled={busy} onClick={() => run(() => api.simulatePayment(p.id))}>
-                Simular pagamento
-              </button>
-            </div>
-          </>
-        ) : (
-          <div className="qr-wrap">
-            {p.qr_base64 && (
-              <div className="qr">
-                <img src={`data:image/png;base64,${p.qr_base64}`} alt="QR code do Pix" />
-              </div>
-            )}
-            <div style={{ flex: '1 1 220px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <p className="quote-text">Paga pelo app do banco. Eu sigo assim que confirmar.</p>
-              {p.qr_code && (
-                <>
-                  <div className="copy">{p.qr_code}</div>
-                  <div className="actions">
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() => {
-                        void navigator.clipboard?.writeText(p.qr_code!);
-                        setCopied(true);
-                        setTimeout(() => setCopied(false), 2000);
-                      }}
-                    >
-                      {copied ? 'Copiado' : 'Copiar código'}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -278,9 +145,10 @@ function QuoteCard({ rpId, ctx }: { rpId: number; ctx: Ctx }) {
         {(p.quote_conditions || p.quote_availability) && (
           <p className="quote-text">{[p.quote_conditions, p.quote_availability].filter(Boolean).join(' · ')}</p>
         )}
-        {done && <span className="tag ok">{p.status === 'fechado' ? 'Fechado' : 'Aprovado — confirmando com ele'}</span>}
+        {done && <span className="tag ok">{p.status === 'fechado' ? 'Fechado · contatos trocados' : 'Aprovado'}</span>}
         {p.status === 'recusou' && <span className="tag">Ele não vai poder atender</span>}
         {p.status === 'recusado_pelo_usuario' && <span className="tag">Recusado</span>}
+        {open && !replying && <p className="note">Ao aprovar, teu nome e celular vão pro profissional pra vocês combinarem o horário.</p>}
         {open && !replying && (
           <div className="actions">
             <button type="button" className="btn primary" disabled={busy} onClick={() => run(() => api.approve(reqId, rpId))}>
@@ -370,6 +238,7 @@ function PausedCard({ rpId, ctx }: { rpId: number; ctx: Ctx }) {
   const { busy, run } = useAction(ctx.onError);
   const p = ctx.detail.providers.find((x) => x.id === rpId);
   if (!p || p.status !== 'pausado') return null;
+  // V2: quem assume é a equipe do Desenrola (admin); o cliente só vê o aviso
   return (
     <div className="actions">
       <button type="button" className="btn" disabled={busy} onClick={() => run(() => api.resume(ctx.detail.request.id, rpId))}>

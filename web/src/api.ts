@@ -5,7 +5,6 @@ export type RequestSummary = { id: number; title: string | null; status: string;
 export type Card =
   | { kind: 'diagnostico'; profissao: string; resumo: string }
   | { kind: 'providers' }
-  | { kind: 'whatsapp' }
   | { kind: 'payment'; paymentId: number }
   | { kind: 'progress' }
   | { kind: 'quote'; rpId: number }
@@ -75,22 +74,14 @@ export type RequestDetail = {
   payment: Payment | null;
 };
 
-export type WaState = {
-  status: 'desconectado' | 'qr' | 'conectando' | 'conectado';
-  qr: string | null;
-  me: string | null;
-  warning_seen?: boolean;
-};
-
 export type Settings = {
   user_name: string;
   user_email: string;
   user_city: string;
   user_neighborhood: string;
   onboarding_done: boolean;
-  price_per_request: number;
-  credits: number;
-  wa_warning_seen: boolean;
+  /** celular do cliente em E.164 sem "+" (vai pro profissional quando ele aprova um orçamento) */
+  user_phone: string;
 };
 
 export class ApiError extends Error {
@@ -120,9 +111,8 @@ export const api = {
   search: (id: number) => call('POST', `/requests/${id}/search`),
   toggleProvider: (id: number, rpId: number, selected: boolean) =>
     call('POST', `/requests/${id}/providers/${rpId}`, { selected }),
-  dispatch: (id: number) => call('POST', `/requests/${id}/dispatch`),
+  dispatch: (id: number) => call<{ ok: true; sent: number }>('POST', `/requests/${id}/dispatch`),
   cancel: (id: number) => call('POST', `/requests/${id}/cancel`),
-  simulatePayment: (paymentId: number) => call('POST', `/payments/${paymentId}/simulate`),
   approve: (id: number, rpId: number) => call('POST', `/requests/${id}/quotes/${rpId}/approve`),
   reject: (id: number, rpId: number) => call('POST', `/requests/${id}/quotes/${rpId}/reject`),
   reply: (id: number, rpId: number, text: string) =>
@@ -131,12 +121,9 @@ export const api = {
   rate: (id: number, body: { providerId: number; stars: number; comment: string; serviceDone: boolean }) =>
     call('POST', `/requests/${id}/rating`, body),
   health: () =>
-    call<{ claude: boolean; places: boolean; mercadopago: boolean; transcription: boolean; payments: boolean }>('GET', '/health'),
+    call<{ claude: boolean; places: boolean; transcription: boolean; payments: boolean; whatsappOficial: 'twilio' | 'stub' }>('GET', '/health'),
   normalizePlace: (city: string, neighborhood: string) =>
     call<{ city: string; neighborhood: string; found: boolean }>('POST', '/geo/normalize', { city, neighborhood }),
-  whatsapp: () => call<WaState>('GET', '/whatsapp'),
-  connectWhatsapp: () => call('POST', '/whatsapp/connect'),
-  logoutWhatsapp: () => call('POST', '/whatsapp/logout'),
   getSettings: () => call<Settings>('GET', '/settings'),
   putSettings: (s: Partial<Record<keyof Settings, string | boolean>>) => call<Settings>('PUT', '/settings', s),
 };
@@ -147,7 +134,6 @@ export type StreamEvent =
   | { type: 'message.done'; requestId: number; messageId: string }
   | { type: 'request.updated'; requestId: number }
   | { type: 'requests.changed' }
-  | { type: 'wa.status'; status: WaState['status']; qr: string | null; me: string | null }
   | { type: 'payment.updated'; requestId: number; paymentId: number; status: string };
 
 const EVENT_NAMES = [
@@ -156,7 +142,6 @@ const EVENT_NAMES = [
   'message.done',
   'request.updated',
   'requests.changed',
-  'wa.status',
   'payment.updated',
 ] as const;
 
@@ -223,28 +208,27 @@ export const STATUS_LABEL: Record<string, string> = {
   buscando: 'Procurando profissionais',
   escolhendo: 'Escolhendo profissionais',
   pagamento: 'Aguardando pagamento',
-  contatando: 'Falando com os profissionais',
+  contatando: 'Esperando orçamentos',
   orcamentos: 'Orçamentos recebidos',
   aguardando_confirmacao: 'Confirmando',
   fechado: 'Fechado',
   avaliado: 'Concluído',
   cancelado: 'Cancelado',
-  sem_prestadores: 'Ninguém encontrado',
+  sem_prestadores: 'Sem profissional disponível',
 };
 
 export const PROVIDER_STATUS_LABEL: Record<string, string> = {
-  sugerido: 'Sugerido',
+  sugerido: 'Disponível',
   excluido: 'Fora',
-  na_fila: 'Na fila',
-  sem_whatsapp: 'Sem WhatsApp',
-  contatado: 'Mensagem enviada',
+  contatado: 'Avisado',
+  na_fila: 'Viu, responde em seguida',
   respondeu: 'Conversando',
   orcou: 'Mandou orçamento',
   sem_resposta: 'Não respondeu',
   recusou: 'Não pode atender',
   recusado_pelo_usuario: 'Recusado',
-  pausado: 'Pausado',
+  pausado: 'Com a equipe do Desenrola',
   aprovado: 'Aprovado',
   fechado: 'Fechado',
-  dispensado: 'Dispensado',
+  dispensado: 'Encerrado',
 };
