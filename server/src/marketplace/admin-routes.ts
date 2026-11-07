@@ -12,6 +12,7 @@ import {
   adminProvidersView, getProviderV2, ProviderError, regionsOf, setProviderStatus, splitList, upsertProviderFromAdmin,
 } from './providers.ts';
 import { adminReply, closeHandoff, OfferError, type HandoffRow } from './offers.ts';
+import { LEAD_STATUSES, recruitingView, setLeadStatus } from './leads.ts';
 
 const providerBody = z.object({
   name: z.string().trim().min(1).max(120),
@@ -114,6 +115,41 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.post('/api/admin/providers/:id/invite', async (req) => {
     const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(req.params);
     return invite(id);
+  });
+
+  // ---------- recrutamento (F4) ----------
+  app.get('/api/admin/recruiting', async (req) => {
+    const q = z
+      .object({ category: z.string().max(100).optional(), city: z.string().max(100).optional(), status: z.enum(LEAD_STATUSES).optional(), q: z.string().max(100).optional() })
+      .parse(req.query ?? {});
+    return recruitingView(q);
+  });
+
+  app.put('/api/admin/leads/:id', async (req) => {
+    const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(req.params);
+    const b = z.object({ lead_status: z.enum(LEAD_STATUSES), note: z.string().trim().max(500).nullish() }).parse(req.body);
+    if (!setLeadStatus(id, b.lead_status, b.note)) throw new ProviderError('Contato não encontrado (ou já cadastrado)', 404);
+    return { ok: true };
+  });
+
+  /** O contato topou: vira profissional cadastrado e recebe o pedido de confirmação (boas_vindas). */
+  app.post('/api/admin/leads/:id/promote', async (req, reply) => {
+    const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(req.params);
+    const lead = getProviderV2(id);
+    if (!lead || lead.status !== 'lead') throw new ProviderError('Contato não encontrado (ou já cadastrado)', 404);
+    const b = providerBody.partial({ name: true, phone: true }).parse(req.body);
+    const p = upsertProviderFromAdmin({
+      name: b.name ?? lead.name,
+      phone: b.phone ?? lead.phone_e164!,
+      categories: toList(b.categories),
+      city: b.city,
+      neighborhoods: toList(b.neighborhoods),
+      bio: b.bio ?? null,
+      notes: b.notes ?? null,
+    });
+    const inv = invite(p.id);
+    bus.publish({ type: 'admin.providers' });
+    return reply.code(201).send({ id: p.id, invite: inv });
   });
 
   // ---------- inbox ----------

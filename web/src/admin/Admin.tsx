@@ -10,8 +10,9 @@ import {
   type ProviderStatus,
 } from './adminApi';
 import './admin.css';
+import { RecruitingTab } from './Recruiting';
 
-type Tab = 'profissionais' | 'conversas';
+type Tab = 'profissionais' | 'conversas' | 'recrutamento';
 
 const STATUS_LABEL: Record<ProviderStatus, string> = {
   convidado: 'Esperando o Sim',
@@ -54,7 +55,7 @@ function regionsText(p: AdminProvider): string {
   return [...byCity.entries()].map(([city, ns]) => (ns ? `${city}: ${ns.join(', ')}` : `${city} (cidade toda)`)).join(' · ');
 }
 
-const initialTab = (): Tab => (location.hash === '#conversas' ? 'conversas' : 'profissionais');
+const initialTab = (): Tab => (location.hash === '#conversas' ? 'conversas' : location.hash === '#recrutamento' ? 'recrutamento' : 'profissionais');
 
 export function Admin() {
   const [tab, setTab] = useState<Tab>(initialTab);
@@ -80,7 +81,7 @@ export function Admin() {
 
   const switchTab = (t: Tab) => {
     setTab(t);
-    history.replaceState(null, '', t === 'conversas' ? '#conversas' : location.pathname);
+    history.replaceState(null, '', t === 'profissionais' ? location.pathname : `#${t}`);
   };
 
   const openHandoffs = inbox?.handoffs.length ?? 0;
@@ -117,6 +118,14 @@ export function Admin() {
                 </span>
               )}
             </button>
+            <button
+              role="tab"
+              aria-selected={tab === 'recrutamento'}
+              className={`adm-tab${tab === 'recrutamento' ? ' active' : ''}`}
+              onClick={() => switchTab('recrutamento')}
+            >
+              Recrutamento
+            </button>
           </nav>
           <span style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
             <a className="adm-back" href="/">
@@ -139,6 +148,8 @@ export function Admin() {
 
         {tab === 'profissionais' ? (
           <ProvidersTab providers={providers} reload={loadProviders} />
+        ) : tab === 'recrutamento' ? (
+          <RecruitingTab onPromoted={loadProviders} />
         ) : (
           <ConversationsTab inbox={inbox} tick={inboxTick} reload={loadInbox} />
         )}

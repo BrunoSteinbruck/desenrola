@@ -72,8 +72,11 @@ export function splitList(s: string) {
 }
 
 export class ProviderError extends Error {
+  /** o Fastify usa statusCode mesmo sem o handler de erro do app */
+  readonly statusCode: number;
   constructor(message: string, public httpStatus = 400) {
     super(message);
+    this.statusCode = httpStatus;
   }
 }
 

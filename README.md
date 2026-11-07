@@ -43,6 +43,9 @@ entrada durável, fila de saída com retry, janela de 24h e opt-in/opt-out.
 3. O profissional toca em **"Ver detalhes"** e o agente do Desenrola negocia (uma negociação por profissional; os outros pedidos dele esperam na fila).
 4. O cliente **aprova** → o profissional recebe nome, celular e bairro do cliente (`orcamento_aprovado`) e os outros recebem `pedido_encerrado`.
 5. Se o profissional pedir uma pessoa ou sair do assunto, a conversa vai pro **inbox do admin** (aba Conversas).
+6. **Sem profissional na região:** o cliente vê contatos sugeridos (busca na internet guardada no banco; quem chama é o cliente, por `wa.me`).
+   Esses contatos viram leads na aba **Recrutamento** do admin: onde falta profissional, quem os clientes mais quiseram chamar,
+   convite pronto pra copiar e "Cadastrar" (vira profissional e recebe o pedido de confirmação).
 
 ## Testar sem incomodar ninguém
 
