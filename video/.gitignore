@@ -1,0 +1,4 @@
+node_modules
+out
+# gerado por scripts/trilha.mjs (rodar antes de renderizar)
+public/trilha.wav
