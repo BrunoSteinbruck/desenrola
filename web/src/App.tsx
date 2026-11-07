@@ -17,6 +17,18 @@ export const formatPhone = (e164: string) => {
   return d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` : d.length === 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : e164;
 };
 
+/** Ícone provisório: fio enrolado que vira linha reta com um ponto (o logo ainda vai mudar). */
+export function BrandMark({ size = 30 }: { size?: number }) {
+  return (
+    <span className="brand-mark" style={{ width: size, height: size }} aria-hidden="true">
+      <svg width={size * 0.7} height={size * 0.7} viewBox="0 0 48 48" fill="none">
+        <path d="M7 31c0-11 14-15 16-7 2 8-10 9-8 1 2-7 12-9 26-9" stroke="#0E1626" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="41" cy="16" r="3.6" fill="#0E1626" />
+      </svg>
+    </span>
+  );
+}
+
 export function App() {
   if (location.pathname.startsWith('/admin')) return <AdminGate />;
   return <ClientApp />;
@@ -181,7 +193,10 @@ function ClientApp() {
       <div className="app">
         <nav aria-label="Histórico" className={`sidebar glass${menuOpen ? ' open' : ''}`}>
           <div className="brand-row">
-            <span className="brand">Desenrola</span>
+            <span className="brand">
+              <BrandMark />
+              desenrola
+            </span>
             <button type="button" className="icon-btn menu-btn" aria-label="Abrir menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((o) => !o)}>
               <IconMenu />
             </button>
@@ -216,7 +231,9 @@ function ClientApp() {
             />
           ) : currentId == null ? (
             <section className="home">
-              <h1>Qual problema você quer resolver hoje?</h1>
+              <h1>
+                Qual problema você quer <span className="hl">resolver</span> hoje?
+              </h1>
               <Composer
                 id="ask"
                 label="Descreva o problema"

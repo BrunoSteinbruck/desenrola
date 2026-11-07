@@ -134,7 +134,7 @@ function ProgressCard({ ctx }: { ctx: Ctx }) {
       {list.map((p) => (
         <div key={p.id} className="row">
           <span className="name">{p.name}</span>
-          <span className={`meta${p.status === 'orcou' || p.status === 'aprovado' || p.status === 'fechado' ? ' tag ok' : ''}`}>
+          <span className={`meta tag${p.status === 'orcou' || p.status === 'aprovado' || p.status === 'fechado' ? ' ok' : ''}`}>
             {PROVIDER_STATUS_LABEL[p.status] ?? p.status}
           </span>
         </div>

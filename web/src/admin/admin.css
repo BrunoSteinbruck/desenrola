@@ -11,17 +11,17 @@
   flex: 0 0 auto; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   border-radius: var(--radius-panel); padding: 8px 10px 8px 18px;
 }
-.adm-brand { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.adm-brand { font-family: var(--font-head); font-size: 19px; font-weight: 800; letter-spacing: -0.03em; }
 .adm-tabs { display: flex; gap: 4px; flex: 1 1 auto; }
 .adm-tab {
   display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 14px;
   border: 0; border-radius: 12px; background: transparent; font-size: 14px; color: var(--ink-2);
 }
-.adm-tab:hover { background: rgba(255, 255, 255, 0.45); }
-.adm-tab.active { background: var(--glass-hi); color: var(--ink); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(0, 0, 0, 0.05); }
+.adm-tab:hover { background: var(--bg); }
+.adm-tab.active { background: var(--sky-soft); color: var(--ink); box-shadow: inset 0 0 0 1px var(--sky-edge); }
 .adm-badge {
   min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--radius-pill);
-  background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600;
+  background: var(--sky); color: var(--navy); font-size: 12px; font-weight: 600;
   display: inline-flex; align-items: center; justify-content: center;
 }
 .adm-back { font-size: 13px; color: var(--muted); text-decoration: none; padding: 0 8px; }
@@ -66,9 +66,9 @@
 
 .adm-pill {
   display: inline-flex; align-items: center; height: 22px; padding: 0 10px; border-radius: var(--radius-pill);
-  font-size: 12px; font-weight: 500; background: rgba(0, 0, 0, 0.05); color: var(--ink-2);
+  font-size: 12px; font-weight: 500; background: var(--bg); color: var(--ink-2);
 }
-.adm-pill.st-ativo { background: rgba(31, 122, 77, 0.12); color: var(--accent); }
+.adm-pill.st-ativo { background: var(--sky-soft); color: var(--blue); box-shadow: inset 0 0 0 1px var(--sky-edge); }
 .adm-pill.st-convidado { background: rgba(183, 134, 43, 0.14); color: #8a6420; }
 .adm-pill.st-pausado { background: rgba(0, 0, 0, 0.06); color: var(--muted); }
 .adm-pill.st-saiu { background: rgba(0, 0, 0, 0.04); color: var(--faint); }
@@ -87,10 +87,10 @@
   width: 100%; border: 0; background: transparent; text-align: left; border-radius: 12px; padding: 9px 10px;
   display: flex; flex-direction: column; gap: 2px; font-size: 14px; color: var(--ink);
 }
-.adm-citem:hover { background: rgba(255, 255, 255, 0.45); }
-.adm-citem.active { background: var(--glass-hi); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(0, 0, 0, 0.05); }
-.adm-citem.handoff { box-shadow: inset 2px 0 0 var(--accent); }
-.adm-citem.handoff.active { box-shadow: inset 2px 0 0 var(--accent), inset 0 1px 0 #fff, 0 1px 3px rgba(0, 0, 0, 0.05); }
+.adm-citem:hover { background: var(--bg); }
+.adm-citem.active { background: var(--sky-soft); box-shadow: inset 0 0 0 1px var(--sky-edge); }
+.adm-citem.handoff { box-shadow: inset 3px 0 0 var(--sky); }
+.adm-citem.handoff.active { box-shadow: inset 3px 0 0 var(--sky), inset 0 0 0 1px var(--sky-edge); }
 .adm-citem-top { display: flex; justify-content: space-between; gap: 8px; }
 .adm-citem-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .adm-citem-time { flex: 0 0 auto; font-size: 12px; color: var(--faint); }
@@ -109,7 +109,7 @@
 
 .adm-handoff-bar {
   display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 12px 18px; border-bottom: 1px solid var(--line); background: rgba(31, 122, 77, 0.05);
+  padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--sky-soft);
 }
 .adm-handoff-label { font-size: 12px; font-weight: 500; color: var(--accent); }
 .adm-handoff-reason { font-size: 14px; color: var(--ink-2); }
@@ -119,7 +119,7 @@
   max-width: min(78%, 560px); padding: 8px 12px; border-radius: 16px; font-size: 14px; line-height: 1.5;
   display: flex; flex-direction: column; gap: 3px;
 }
-.adm-bubble.in { align-self: flex-start; background: rgba(255, 255, 255, 0.8); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); border-bottom-left-radius: 6px; }
+.adm-bubble.in { align-self: flex-start; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); border-bottom-left-radius: 6px; }
 .adm-bubble.out { align-self: flex-end; background: var(--user-bubble); color: var(--user-bubble-ink); border-bottom-right-radius: 6px; }
 .adm-bubble.out.failed { background: rgba(163, 58, 42, 0.08); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(163, 58, 42, 0.3); }
 .adm-bubble-text { white-space: pre-wrap; overflow-wrap: anywhere; }
