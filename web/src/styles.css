@@ -275,23 +275,47 @@ a { color: var(--blue); }
   .row.suggestion .btn { width: 100%; }
 }
 
-/* Caixa da home esperando a pessoa: ondas de azul céu bem suaves saindo da borda.
-   Some de vez quando ela começa a digitar (classe .waiting sai). */
+/* Caixa da home esperando a pessoa: linhas finas de azul céu em volta, bem perto da borda.
+   - um contorno pontilhado que corre devagar ao redor (SVG .composer-aura);
+   - duas linhas finas (uma contínua, uma tracejada) que se afastam poucos px e somem,
+     com tempos diferentes pra nunca repetir igual.
+   Tudo some de vez quando a pessoa começa a digitar (classe .waiting sai). */
 .composer { position: relative; }
+.composer-aura {
+  position: absolute; inset: -6px; width: calc(100% + 12px); height: calc(100% + 12px);
+  overflow: visible; pointer-events: none;
+}
+.composer-aura rect {
+  fill: none; stroke: var(--sky); stroke-width: 1.4; stroke-linecap: round;
+  stroke-dasharray: 0.01 7; vector-effect: non-scaling-stroke;
+  animation: aura-run 14s linear infinite, aura-breathe 4.6s ease-in-out infinite;
+}
+@keyframes aura-run { to { stroke-dashoffset: -140; } }
+@keyframes aura-breathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.9; } }
 .composer.waiting::before,
 .composer.waiting::after {
   content: '';
   position: absolute;
   inset: -1px;
   border-radius: inherit;
+  border: 1px solid var(--sky);
   pointer-events: none;
-  animation: composer-wave 3.2s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+  opacity: 0;
+  animation: composer-ring 4.3s cubic-bezier(0.25, 0.6, 0.3, 1) infinite;
 }
-.composer.waiting::after { animation-delay: 1.6s; }
-@keyframes composer-wave {
-  0% { box-shadow: 0 0 0 0 rgba(122, 184, 245, 0.42); }
-  100% { box-shadow: 0 0 0 22px rgba(122, 184, 245, 0); }
+.composer.waiting::after {
+  border-style: dashed;
+  animation-duration: 5.9s;
+  animation-delay: 2.1s;
+}
+@keyframes composer-ring {
+  0% { inset: -1px; opacity: 0.7; }
+  70% { opacity: 0.15; }
+  100% { inset: -11px; opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .composer.waiting::before, .composer.waiting::after { animation: none; }
+  .composer.waiting::before, .composer.waiting::after { animation: none; opacity: 0; }
+  .composer-aura rect { animation: none; opacity: 0.5; }
 }
+/* enquanto as linhas animam, sem o halo largo do foco (fica só a borda fina) */
+.composer.waiting:focus-within { box-shadow: var(--shadow-card); }
