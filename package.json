@@ -12,7 +12,9 @@
     "dev:web": "vite --config web/vite.config.ts",
     "build": "vite build --config web/vite.config.ts",
     "start": "NODE_ENV=production tsx --env-file-if-exists=.env server/src/index.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx --test server/test/*.test.ts",
+    "wa:templates": "tsx --env-file-if-exists=.env server/scripts/whatsapp-templates.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.6.0",

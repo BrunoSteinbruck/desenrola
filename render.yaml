@@ -1,0 +1,42 @@
+# Blueprint do Render (V2): um web service com disco persistente pro SQLite.
+# Uso: dashboard.render.com → New → Blueprint → repo BrunoSteinbruck/desenrola (privado: dar acesso
+# explícito a ele no GitHub App do Render).
+#
+# Decisões (PLANO-V2 §6 e §9):
+# - plano pago (starter): o free dorme após 15 min, o webhook da Twilio perde eventos e o scheduler para;
+# - UMA instância, sem autoscaling: scheduler, filas e locks vivem em memória/SQLite local;
+# - SQLite no disco persistente (/var/data). Backup diário pro R2 entra antes do teste real.
+
+services:
+  - type: web
+    name: desenrola
+    runtime: node
+    plan: starter
+    numInstances: 1
+    # --include=dev: vite (build do front) e tsx (start) são devDependencies
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    disk:
+      name: desenrola-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "24.13.0"
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATA_DIR
+        value: /var/data
+      # Trava do site até existir login (F2). Sem ela o servidor não sobe em produção.
+      - key: SITE_PASSWORD
+        generateValue: true
+      # Preencher no dashboard:
+      # ANTHROPIC_API_KEY
+      # TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_WHATSAPP_FROM
+      # WHATSAPP_WEBHOOK_URL = https://<este-servico>.onrender.com/webhooks/whatsapp
+      #   (igual à cadastrada na Twilio; é com ela que a assinatura é conferida)
+      # WA_TPL_* = SIDs dos templates aprovados (npm run wa:templates -- submit)
+      # GOOGLE_MAPS_API_KEY (opcional)

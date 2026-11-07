@@ -6,7 +6,8 @@ import { bus } from './events.ts';
 import { formatBR } from './services/phone.ts';
 import { shortTitle } from './lib/title.ts';
 
-export const DATA_DIR = resolve(process.cwd(), 'data');
+// em produção (Render) aponta pro disco persistente
+export const DATA_DIR = resolve(process.env.DATA_DIR || resolve(process.cwd(), 'data'));
 mkdirSync(DATA_DIR, { recursive: true });
 
 // o projeto se chamava Resolvedor: aproveita o banco antigo se ainda tiver o nome velho

@@ -13,5 +13,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["server/src"]
+  "include": ["server/src", "server/test", "server/scripts"]
 }

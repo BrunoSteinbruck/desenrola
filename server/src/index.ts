@@ -21,8 +21,15 @@ import { hasPlaces } from './services/places.ts';
 import { normalizePlace } from './services/geo.ts';
 import { hasClaude } from './agents/claude.ts';
 import { connect, hasSavedSession, logout, setWhatsAppHandlers, waState } from './whatsapp.ts';
+import { channel, registerWhatsAppRoutes, startChannel } from './channel/index.ts';
+import { registerSiteGate } from './lib/gate.ts';
 
-const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
+const app = Fastify({
+  logger: { level: process.env.LOG_LEVEL ?? 'info' },
+  // atrás do proxy do Render: confia em 1 salto (IP real do cliente pro rate limit)
+  trustProxy: process.env.NODE_ENV === 'production' ? (_addr: string, hop: number) => hop < 1 : false,
+});
+registerSiteGate(app);
 
 // ---------- erros ----------
 app.setErrorHandler((err, _req, reply) => {
@@ -223,7 +230,11 @@ app.get('/api/health', async () => ({
   transcription: !!process.env.OPENAI_API_KEY,
   devTestProvider: !!process.env.DEV_TEST_PROVIDER_PHONE,
   payments: paymentsEnabled(),
+  whatsappOficial: channel.name,
 }));
+
+// ---------- WhatsApp oficial (V2): webhook da Twilio + rotas de dev ----------
+await registerWhatsAppRoutes(app);
 
 // ---------- SSE ----------
 app.get('/api/stream', (req, reply: FastifyReply) => {
@@ -271,6 +282,7 @@ if (!hasClaude()) app.log.warn('ANTHROPIC_API_KEY não configurada: os agentes v
 sweepPayments();
 recoverNegotiations();
 startScheduler();
+startChannel(app.log);
 if (hasSavedSession()) void connect(); // reconecta só se já houver sessão salva
 
 const port = Number(process.env.PORT) || 3333;

@@ -1,6 +1,9 @@
 # Desenrola
 
-Agente que faz o meio de campo com prestadores de serviço pelo teu WhatsApp. Plano em [PLANO.md](PLANO.md), contrato da API em [API.md](API.md).
+Agente que pega orçamentos com prestadores de serviço pra ti.
+
+- **V2 (em construção, `main`):** marketplace com banco próprio de prestadores; o Desenrola fala com eles por um número oficial (WhatsApp Business via Twilio). Plano em [PLANO-V2.md](PLANO-V2.md).
+- **V1 (branch `v1`):** o agente falava pelo WhatsApp do próprio usuário (QR). Plano em [PLANO.md](PLANO.md), API em [API.md](API.md).
 
 ## Rodar
 
@@ -11,6 +14,21 @@ npm run dev            # servidor em :3333 + site em http://localhost:5173
 ```
 
 Produção local: `npm run build && npm start` (o servidor serve o site em :3333).
+Testes: `npm test`.
+
+## WhatsApp oficial (V2)
+
+Código em `server/src/channel/`: adaptador Twilio (ou stub), webhook `POST /webhooks/whatsapp` com assinatura conferida,
+entrada durável, fila de saída com retry, janela de 24h e opt-in/opt-out.
+
+- **Sem credencial da Twilio** o canal é um stub: nada sai, só aparece no log. Simule o prestador respondendo:
+  `curl -X POST localhost:3333/api/dev/whatsapp/inbound -H 'content-type: application/json' -d '{"from":"5551999990000","text":"oi"}'`
+  e veja a fila em `GET /api/dev/whatsapp/outbox`.
+- **Sandbox da Twilio** (antes da aprovação da Meta): `TWILIO_WHATSAPP_FROM=whatsapp:+14155238886`; o webhook precisa de URL pública
+  (deploy no Render ou um túnel) e `WHATSAPP_WEBHOOK_URL` igual à cadastrada no sandbox.
+- **Templates:** o texto fica em `server/src/channel/templates.ts`. `npm run wa:templates` mostra; `-- submit` manda pra aprovação; `-- status` acompanha.
+  Os SIDs aprovados vão em `WA_TPL_*`.
+- **Deploy:** `render.yaml` (Blueprint). O site fica atrás de `SITE_PASSWORD` até existir login.
 
 ## Testar sem incomodar ninguém
 
