@@ -1,4 +1,4 @@
-# Resolvedor
+# Desenrola
 
 Agente que faz o meio de campo com prestadores de serviço pelo teu WhatsApp. Plano em [PLANO.md](PLANO.md), contrato da API em [API.md](API.md).
 

@@ -53,10 +53,10 @@ export async function createPayment(requestId: number): Promise<PaymentRow> {
   const amountCents = Math.round((Number(getSetting('price_per_request')) || 15) * 100);
   const key = randomUUID();
   const expires = new Date(Date.now() + EXPIRY_MIN * 60_000);
-  const description = `Resolvedor: ${req?.title ?? 'pedido ' + requestId}`.slice(0, 200);
+  const description = `Desenrola: ${req?.title ?? 'pedido ' + requestId}`.slice(0, 200);
 
   if (!hasMercadoPago()) {
-    const fake = `00020126SIMULADO-RESOLVEDOR-${requestId}-${key.slice(0, 8)}`;
+    const fake = `00020126SIMULADO-DESENROLA-${requestId}-${key.slice(0, 8)}`;
     const png = await QRCode.toDataURL(fake, { margin: 1, width: 280 });
     const res = run(
       `INSERT INTO payments (request_id, provider, idempotency_key, status, amount_cents, qr_code, qr_base64, expires_at, created_at)

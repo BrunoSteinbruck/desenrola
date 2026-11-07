@@ -16,7 +16,7 @@ const S = {
 } as const;
 export const TOTAL = 1425;
 
-export const Resolvedor = () => (
+export const Desenrola = () => (
   <AbsoluteFill style={{ fontFamily, color: C.ink }}>
     <Backdrop />
     <Audio src={staticFile('trilha.wav')} />
@@ -123,7 +123,7 @@ const Logo = () => {
         <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${shine}%`, width: 120, background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent)', transform: 'skewX(-20deg)' }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 22, justifyContent: 'center' }}>
           <span style={{ width: 26, height: 26, borderRadius: '50%', background: C.accent, boxShadow: '0 0 0 10px rgba(31,122,77,0.15)' }} />
-          <span style={{ fontSize: 120, fontWeight: 700, letterSpacing: -5 }}>Resolvedor</span>
+          <span style={{ fontSize: 120, fontWeight: 700, letterSpacing: -5 }}>Desenrola</span>
         </div>
         <Enter at={18}>
           <p style={{ margin: '18px 0 0', fontSize: 34, color: C.muted }}>Eu faço o meio de campo com os prestadores. Tu só aprova.</p>
@@ -196,9 +196,9 @@ const Diagnostico = () => {
 
 // ---------------------------------------------------------------- 5. busca
 const PROVS = [
-  { name: 'Elétrica Moinhos', tag: '4,9 no Resolvedor', ours: true },
-  { name: 'Marcos Eletricista', tag: '4,8 no Resolvedor', ours: true },
-  { name: 'JR Instalações', tag: '4,7 no Resolvedor', ours: true },
+  { name: 'Elétrica Moinhos', tag: '4,9 no Desenrola', ours: true },
+  { name: 'Marcos Eletricista', tag: '4,8 no Desenrola', ours: true },
+  { name: 'JR Instalações', tag: '4,7 no Desenrola', ours: true },
   { name: 'Luz & Força Serviços', tag: 'Novo · Google 4,6', ours: false },
   { name: 'Paulo Reparos Elétricos', tag: 'Novo · Google 4,5', ours: false },
 ];
@@ -208,7 +208,7 @@ const Busca = () => {
   const glow = interpolate(f, [130, 150, 170], [0, 1, 0.6], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   return (
     <Split
-      left={<Kicker at={0} step="2 · Busca" title="Acha os melhores da tua região" sub="3 que já atenderam bem quem usa o Resolvedor + 2 novos do Google." />}
+      left={<Kicker at={0} step="2 · Busca" title="Acha os melhores da tua região" sub="3 que já atenderam bem quem usa o Desenrola + 2 novos do Google." />}
       right={
         <div style={{ ...glass, width: 900, borderRadius: 36, overflow: 'hidden' }}>
           {PROVS.map((p, i) => {
@@ -388,7 +388,7 @@ const Final = () => {
       </div>
       <div style={{ ...glass, borderRadius: 999, padding: '22px 46px', display: 'flex', alignItems: 'center', gap: 18, opacity: mark, transform: `scale(${0.9 + 0.1 * mark})` }}>
         <span style={{ width: 20, height: 20, borderRadius: '50%', background: C.accent, boxShadow: '0 0 0 8px rgba(31,122,77,0.15)' }} />
-        <span style={{ fontSize: 48, fontWeight: 700, letterSpacing: -1.5 }}>Resolvedor</span>
+        <span style={{ fontSize: 48, fontWeight: 700, letterSpacing: -1.5 }}>Desenrola</span>
       </div>
     </AbsoluteFill>
   );

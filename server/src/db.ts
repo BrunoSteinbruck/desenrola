@@ -1,6 +1,6 @@
 // SQLite (node:sqlite) — schema, helpers e "views" no formato do contrato da API.
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { bus } from './events.ts';
 import { formatBR } from './services/phone.ts';
@@ -9,7 +9,14 @@ import { shortTitle } from './lib/title.ts';
 export const DATA_DIR = resolve(process.cwd(), 'data');
 mkdirSync(DATA_DIR, { recursive: true });
 
-export const db = new DatabaseSync(resolve(DATA_DIR, 'resolvedor.db'));
+// o projeto se chamava Resolvedor: aproveita o banco antigo se ainda tiver o nome velho
+const DB_FILE = resolve(DATA_DIR, 'desenrola.db');
+const OLD_DB = resolve(DATA_DIR, 'resolvedor.db');
+if (!existsSync(DB_FILE) && existsSync(OLD_DB)) {
+  for (const ext of ['', '-wal', '-shm']) if (existsSync(OLD_DB + ext)) renameSync(OLD_DB + ext, DB_FILE + ext);
+}
+
+export const db = new DatabaseSync(DB_FILE);
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
 
 db.exec(`

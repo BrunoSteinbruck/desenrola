@@ -1,4 +1,4 @@
-# Resolvedor — contrato da API (back-end)
+# Desenrola — contrato da API (back-end)
 
 Complementa PLANO.md §4. Tudo JSON. Erros: `{ error: string, code?: string }` com status HTTP adequado (400 dados inválidos, 404 não encontrado, 409 etapa errada, 502 Mercado Pago). Datas são ISO 8601 (UTC). Valores em centavos (`*_cents`).
 

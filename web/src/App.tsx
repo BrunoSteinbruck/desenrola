@@ -150,7 +150,7 @@ export function App() {
       <div className="app">
         <nav aria-label="Histórico" className={`sidebar glass${menuOpen ? ' open' : ''}`}>
           <div className="brand-row">
-            <span className="brand">Resolvedor</span>
+            <span className="brand">Desenrola</span>
             <button type="button" className="icon-btn menu-btn" aria-label="Abrir menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((o) => !o)}>
               <IconMenu />
             </button>

@@ -45,7 +45,7 @@ async function comparison(requestId: number) {
   if (quotes.length < 2) return;
   const req = getRequest(requestId)!;
   const list = quotes
-    .map((q) => `- ${q.name}: ${reais(q.quote_value_cents)}; condições: ${q.quote_conditions || '-'}; disponibilidade: ${q.quote_availability || '-'}; nota Google: ${q.rating_google ?? '-'} (${q.reviews_google ?? 0} avaliações)${q.our_rating_avg ? `; nota no Resolvedor: ${q.our_rating_avg.toFixed(1)}` : ''}`)
+    .map((q) => `- ${q.name}: ${reais(q.quote_value_cents)}; condições: ${q.quote_conditions || '-'}; disponibilidade: ${q.quote_availability || '-'}; nota Google: ${q.rating_google ?? '-'} (${q.reviews_google ?? 0} avaliações)${q.our_rating_avg ? `; nota no Desenrola: ${q.our_rating_avg.toFixed(1)}` : ''}`)
     .join('\n');
   try {
     const r = await runTurn({

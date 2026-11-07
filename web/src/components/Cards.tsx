@@ -12,7 +12,7 @@ type Ctx = {
 
 const rating = (p: RequestProvider) =>
   p.our_rating_avg != null
-    ? `${p.our_rating_avg.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} no Resolvedor`
+    ? `${p.our_rating_avg.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} no Desenrola`
     : p.rating_google != null
     ? `${p.rating_google.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}${
         p.reviews_google ? ` · ${p.reviews_google} ${p.reviews_google === 1 ? 'avaliação' : 'avaliações'}` : ''

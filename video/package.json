@@ -1,10 +1,10 @@
 {
-  "name": "resolvedor-video",
+  "name": "desenrola-video",
   "private": true,
   "type": "module",
   "scripts": {
     "studio": "remotion studio src/index.ts",
-    "render": "node scripts/trilha.mjs && remotion render src/index.ts Resolvedor out/resolvedor.mp4"
+    "render": "node scripts/trilha.mjs && remotion render src/index.ts Desenrola out/desenrola.mp4"
   },
   "dependencies": {
     "@remotion/cli": "4.0.541",

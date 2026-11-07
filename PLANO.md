@@ -1,4 +1,4 @@
-# Resolvedor — Plano do MVP (Agente Meio de Campo)
+# Desenrola — Plano do MVP (Agente Meio de Campo)
 
 > Fonte: "Agente Meio de Campo — Brief do MVP" (PDF). Sem login, usuário único, roda local.
 > Posicionamento: "resolve teu problema sem perder a tarde no WhatsApp".
@@ -9,7 +9,7 @@
 |---|---|---|
 | Runtime | Node 24 + TypeScript (ESM), `tsx` em dev | Baileys é Node (exige ≥20); um só idioma |
 | Servidor | Fastify 5 | leve, SSE fácil, tipado |
-| Banco | SQLite via `node:sqlite` (`DatabaseSync`) — arquivo `data/resolvedor.db` | sem dependência nativa pro banco; suficiente pro MVP |
+| Banco | SQLite via `node:sqlite` (`DatabaseSync`) — arquivo `data/desenrola.db` | sem dependência nativa pro banco; suficiente pro MVP |
 | WhatsApp | `@whiskeysockets/baileys` **fixado em `7.0.0-rc14`** (sem `^`; `baileys` no npm é o mesmo tarball, mas usamos o nome oficial) + `qrcode` pra gerar PNG | decisão do brief; sessão fica no servidor (`data/wa-auth/`). Ainda é RC: fixar versão evita quebra silenciosa. Puxa `whatsapp-rust-bridge` (WASM) e peer deps opcionais (`sharp`/`jimp`) — só o banco é "zero nativo", não o projeto inteiro |
 | IA | `@anthropic-ai/sdk`, modelo `claude-opus-5-5`, thinking adaptativo (sempre ligado), `output_config.effort` explícito por agente | agentes com tools |
 | Busca de prestadores | Google Places API (New) Text Search; fallback: tool `web_search_20260209` do Claude quando não há `GOOGLE_MAPS_API_KEY` | brief: "principalmente pelo Google" |
@@ -30,7 +30,7 @@ Regras transversais do uso da API Claude (valem pra todo agente):
 
 Estrutura:
 ```
-Resolvedor/
+Desenrola/
   server/src/
     index.ts            # Fastify, rotas, SSE, serve web/dist em produção
     db.ts               # schema + migrations + helpers
