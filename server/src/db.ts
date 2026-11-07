@@ -220,6 +220,7 @@ export type Card =
   | { kind: 'paused'; rpId: number }
   | { kind: 'rating'; providerId: number; providerName: string }
   | { kind: 'comparison' }
+  | { kind: 'suggestions'; items: Array<{ provider_id: number; name: string; phone_display: string; rating: number | null; reviews: number | null; address: string | null; wa_url: string }> }
   | { kind: 'error' };
 
 export interface RequestRow {

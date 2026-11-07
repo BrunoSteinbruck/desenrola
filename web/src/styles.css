@@ -285,3 +285,7 @@ button:disabled { cursor: default; opacity: 0.5; }
   font-size: 14px;
   color: var(--muted);
 }
+.row.suggestion { align-items: center; }
+.row.suggestion .name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.row.suggestion .name small { color: var(--muted); font-size: 12px; font-weight: 400; }
+.row.suggestion .btn { flex: none; text-decoration: none; }

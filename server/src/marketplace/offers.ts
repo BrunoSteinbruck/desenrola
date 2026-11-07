@@ -16,6 +16,7 @@ import { enqueue, OutboxError, type InboundMessage } from '../channel/index.ts';
 import type { MessageContext } from '../channel/index.ts';
 import { windowOpen } from '../channel/store.ts';
 import { eligibleProviders, getProviderV2, providerByPhone, type ProviderV2 } from './providers.ts';
+import { suggestFor } from './suggestions.ts';
 
 export class OfferError extends Error {
   constructor(message: string, public httpStatus = 400, public code?: string) {
@@ -71,9 +72,10 @@ export function findProviders(requestId: number) {
     postMessage(
       requestId,
       'assistant',
-      `Ainda não tenho ${req.category} cadastrado que atenda ${where}. Anotei o pedido: estamos trazendo profissionais pra tua região e te aviso quando tiver.`,
+      `Ainda não tenho ${req.category} cadastrado no Desenrola que atenda ${where}. Vou ver os contatos que conheço da tua região.`,
     );
     console.log(`[matching] sem prestador: ${req.category} em ${where} (pedido ${requestId})`);
+    void suggestFor(requestId).catch((e) => console.error('[sugestões]', e));
     return { count: 0 };
   }
   setRequestStatus(requestId, 'escolhendo');

@@ -58,7 +58,9 @@ export function Conversation({
   // O que o agente está fazendo agora (sem depender de evento: deriva do estado do pedido)
   const last = messages[messages.length - 1];
   const activity =
-    waiting || (last?.role === 'user' && !closed)
+    request.status === 'buscando'
+      ? 'Procurando contatos na tua região'
+      : waiting || (last?.role === 'user' && !closed)
         ? 'Pensando'
         : null;
 

@@ -16,6 +16,7 @@ import { rate } from './agents/followup.ts';
 import { closeHandoff, dispatch, findProviders, OfferError, onInbound, openHandoff } from './marketplace/offers.ts';
 import { onProviderConsent, ProviderError } from './marketplace/providers.ts';
 import { registerAdminRoutes } from './marketplace/admin-routes.ts';
+import { recordSuggestionClick } from './marketplace/suggestions.ts';
 import { startScheduler } from './services/scheduler.ts';
 import { hasPlaces } from './services/places.ts';
 import { toE164BR } from './services/phone.ts';
@@ -158,6 +159,13 @@ export async function buildApp() {
     postMessage(id, 'user', text);
     pushUserReply(rpId, text);
     return { ok: true };
+  });
+
+  // contatos sugeridos: o cliente tocou em "Chamar no WhatsApp" (conta como demanda pro recrutamento)
+  app.post('/api/requests/:id/suggestions/:providerId/click', async (req) => {
+    const { id, providerId } = z.object({ id: z.coerce.number().int().positive(), providerId: z.coerce.number().int().positive() }).parse(req.params);
+    requireRequest(req, id);
+    return { ok: recordSuggestionClick(id, providerId) };
   });
 
   app.post('/api/requests/:id/rating', async (req) => {

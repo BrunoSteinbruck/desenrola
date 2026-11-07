@@ -12,7 +12,19 @@ export type Card =
   | { kind: 'paused'; rpId: number }
   | { kind: 'rating'; providerId: number; providerName: string }
   | { kind: 'comparison' }
+  | { kind: 'suggestions'; items: Suggestion[] }
   | { kind: 'error' };
+
+/** Contato achado na internet, que ainda não é do Desenrola: o cliente chama ele mesmo. */
+export type Suggestion = {
+  provider_id: number;
+  name: string;
+  phone_display: string;
+  rating: number | null;
+  reviews: number | null;
+  address: string | null;
+  wa_url: string;
+};
 
 export type Message = {
   id: number | string;
@@ -119,6 +131,7 @@ export const api = {
   reply: (id: number, rpId: number, text: string) =>
     call('POST', `/requests/${id}/quotes/${rpId}/reply`, { text }),
   resume: (id: number, rpId: number) => call('POST', `/requests/${id}/providers/${rpId}/resume`),
+  suggestionClick: (id: number, providerId: number) => call('POST', `/requests/${id}/suggestions/${providerId}/click`),
   rate: (id: number, body: { providerId: number; stars: number; comment: string; serviceDone: boolean }) =>
     call('POST', `/requests/${id}/rating`, body),
   health: () =>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api, brl, ApiError, PROVIDER_STATUS_LABEL, type Card, type RequestDetail, type RequestProvider, type Settings } from '../api';
+import { api, brl, ApiError, PROVIDER_STATUS_LABEL, type Card, type RequestDetail, type RequestProvider, type Settings, type Suggestion } from '../api';
 import { Login } from './Login';
 import { IconStar } from './ui';
 
@@ -49,6 +49,8 @@ export function CardView({ card, ctx }: { card: Card; ctx: Ctx }) {
       return <DecisionCard rpId={card.rpId} pergunta={card.pergunta} ctx={ctx} />;
     case 'paused':
       return <PausedCard rpId={card.rpId} ctx={ctx} />;
+    case 'suggestions':
+      return <SuggestionsCard items={card.items} ctx={ctx} />;
     case 'rating':
       return <RatingCard providerId={card.providerId} providerName={card.providerName} ctx={ctx} />;
     default:
@@ -319,6 +321,41 @@ function RatingCard({ providerId, providerName, ctx }: { providerId: number; pro
             </form>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function SuggestionsCard({ items, ctx }: { items: Suggestion[]; ctx: Ctx }) {
+  const [called, setCalled] = useState<number[]>([]);
+  return (
+    <div className="card glass">
+      {items.map((s) => (
+        <div key={s.provider_id} className="row suggestion">
+          <span className="name">
+            {s.name}
+            <small>
+              {[s.rating != null ? `${s.rating.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} no Google${s.reviews ? ` · ${s.reviews} ${s.reviews === 1 ? 'avaliação' : 'avaliações'}` : ''}` : null, s.phone_display]
+                .filter(Boolean)
+                .join(' · ')}
+            </small>
+          </span>
+          <a
+            className={`btn${called.includes(s.provider_id) ? '' : ' dark'}`}
+            href={s.wa_url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => {
+              setCalled((c) => (c.includes(s.provider_id) ? c : [...c, s.provider_id]));
+              void api.suggestionClick(ctx.detail.request.id, s.provider_id).catch(() => {});
+            }}
+          >
+            {called.includes(s.provider_id) ? 'Chamar de novo' : 'Chamar no WhatsApp'}
+          </a>
+        </div>
+      ))}
+      <div className="card-foot">
+        <span className="note">Contatos achados na internet: não passaram pelo Desenrola ainda.</span>
       </div>
     </div>
   );

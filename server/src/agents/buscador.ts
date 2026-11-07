@@ -117,10 +117,11 @@ export async function runSearch(requestId: number): Promise<void> {
  * Fora: bloqueados, o de teste e quem levou nota baixa dos nossos usuários.
  * Ordem: nota dos nossos usuários pesa mais, depois Google; bônus pra quem é do mesmo bairro.
  */
-function ownProviders(category: string, city: string, neighborhood: string | null): ProviderRow[] {
+export function ownProviders(category: string, city: string, neighborhood: string | null): ProviderRow[] {
   const rows = all<ProviderRow & { area_hood: string | null }>(
     `SELECT p.*, a.neighborhood AS area_hood FROM provider_areas a JOIN providers p ON p.id = a.provider_id
       WHERE a.category_key = ? AND a.city_key = ? AND p.blocked = 0 AND p.source != 'teste'
+        AND COALESCE(p.status, 'lead') NOT IN ('saiu', 'bloqueado')
         AND (p.our_rating_count = 0 OR p.our_rating_avg >= 3.5)`,
     areaKey(category), areaKey(city),
   );
@@ -132,7 +133,7 @@ function ownProviders(category: string, city: string, neighborhood: string | nul
 }
 
 /** Guarda em que profissão/cidade esse prestador apareceu (base do nosso banco). */
-function tagArea(providerId: number, category: string, city: string, neighborhood: string | null) {
+export function tagArea(providerId: number, category: string, city: string, neighborhood: string | null) {
   const ts = now();
   run(
     `INSERT INTO provider_areas (provider_id, category_key, category, city_key, city, neighborhood, first_seen_at, last_seen_at)
@@ -150,7 +151,7 @@ function score(p: ProviderRow): number {
   return base + ours - (p.blocked ? 100 : 0);
 }
 
-function upsertProvider(c: Candidate, e164: string): ProviderRow {
+export function upsertProvider(c: Candidate, e164: string): ProviderRow {
   const existing =
     (c.placeId ? get<ProviderRow>('SELECT * FROM providers WHERE place_id = ?', c.placeId) : undefined) ??
     get<ProviderRow>('SELECT * FROM providers WHERE phone_e164 = ? ORDER BY id LIMIT 1', e164);
@@ -202,7 +203,7 @@ const EXTRACT_SCHEMA = {
   additionalProperties: false,
 };
 
-async function searchWeb(profissao: string, bairro: string, cidade: string, quantos: number): Promise<Candidate[]> {
+export async function searchWeb(profissao: string, bairro: string, cidade: string, quantos: number): Promise<Candidate[]> {
   // passo 1: pesquisa com web_search (server tool; pause_turn tratado no runTurn)
   // Pesquisa pela cidade inteira: restringir ao bairro quase não acha ninguém com telefone publicado.
   const step1: MessageParam[] = [{
