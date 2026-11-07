@@ -232,7 +232,7 @@ function ClientApp() {
           ) : currentId == null ? (
             <section className="home">
               <h1>
-                Qual problema você quer resolver hoje?
+                Qual problema você precisa resolver?
               </h1>
               <Composer
                 id="ask"
