@@ -4,7 +4,8 @@
 // Toda busca fica registrada (lead_searches) e os contatos achados ficam no banco (providers + provider_areas).
 // Com o tempo, a mesma profissão na mesma cidade sai do banco, sem pesquisar de novo.
 import { all, areaKey, db, get, getRequest, now, postMessage, run, setRequestStatus } from '../db.ts';
-import { formatBR, toE164BR } from '../services/phone.ts';
+import { formatBR, isMobileBR, toE164BR } from '../services/phone.ts';
+import type { ProviderRow } from '../db.ts';
 import { hasPlaces, searchPlaces, type Candidate } from '../services/places.ts';
 import { ownProviders, searchWeb, tagArea, upsertProvider } from '../agents/buscador.ts';
 import { friendlyError } from '../agents/claude.ts';
@@ -72,6 +73,21 @@ export type Suggestion = {
   wa_url: string;
 };
 
+/**
+ * Só o que dá pra chamar no WhatsApp: celular (fixo quase nunca tem) e um por nome
+ * (a mesma empresa aparece com vários números; fica o primeiro, que é o mais bem ranqueado).
+ */
+export function usable(pool: ProviderRow[]): ProviderRow[] {
+  const seen = new Set<string>();
+  return pool.filter((p) => {
+    if (!p.phone_e164 || !isMobileBR(p.phone_e164)) return false;
+    const key = areaKey(p.name).replace(/[^a-z0-9]/g, '');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /** Mensagem que abre no WhatsApp do cliente, com as palavras dele. */
 function prefilled(requestId: number) {
   const req = getRequest(requestId)!;
@@ -90,7 +106,7 @@ export async function suggestFor(requestId: number): Promise<Suggestion[]> {
   if (!req?.category) return [];
   const city = req.city || clientOfRequest(requestId)?.city || 'Porto Alegre';
   const hood = req.neighborhood ?? '';
-  let pool = ownProviders(req.category, city, hood || null);
+  let pool = usable(ownProviders(req.category, city, hood || null));
 
   if (pool.length < ENOUGH_FROM_DB && !recentSearch(req.category, city)) {
     setRequestStatus(requestId, 'buscando');
@@ -109,7 +125,7 @@ export async function suggestFor(requestId: number): Promise<Suggestion[]> {
         areaKey(req.category), req.category, areaKey(city), city, hood || null, source, saved, requestId, now(),
       );
       console.log(`[sugestões] busca ${source}: ${req.category} em ${city} → ${saved} contatos guardados`);
-      pool = ownProviders(req.category, city, hood || null);
+      pool = usable(ownProviders(req.category, city, hood || null));
     } catch (err) {
       console.error('[sugestões] busca falhou', err);
       if (!pool.length) {
@@ -124,7 +140,6 @@ export async function suggestFor(requestId: number): Promise<Suggestion[]> {
 
   const text = encodeURIComponent(prefilled(requestId));
   const items: Suggestion[] = pool
-    .filter((p) => p.phone_e164)
     .slice(0, SUGGEST_MAX)
     .map((p) => ({
       provider_id: p.id,

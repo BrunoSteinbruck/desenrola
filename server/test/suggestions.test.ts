@@ -23,6 +23,8 @@ sug.setSearcherForTests(async (category, _hood, city) => {
       { name: `Técnico A (${category}, ${city})`, phone: '(51) 98000-0001', rating: 4.8, reviews: 40, address: 'Cidade Baixa', website: null, placeId: null, source: 'web' },
       { name: 'Técnico B', phone: '51980000002', rating: 4.5, reviews: 12, address: null, website: null, placeId: null, source: 'web' },
       { name: 'Sem telefone', phone: null, rating: 5, reviews: 3, address: null, website: null, placeId: null, source: 'web' },
+      { name: 'Fixo Ltda', phone: '(51) 3051-4255', rating: 4.9, reviews: 80, address: null, website: null, placeId: null, source: 'web' },
+      { name: 'Técnico  B', phone: '51980000003', rating: 4.4, reviews: 5, address: null, website: null, placeId: null, source: 'web' },
     ],
   };
 });
@@ -50,7 +52,8 @@ test('sem cadastrado: pesquisa, guarda e mostra com a mensagem pronta', async ()
   assert.equal(offers.findProviders(id).count, 0);
   const items = await waitSuggestions(id);
   assert.equal(searches, 1);
-  assert.equal(items.length, 2, 'quem não tem telefone fica de fora');
+  assert.equal(items.length, 2, 'fora: sem telefone, fixo e nome repetido');
+  assert.ok(!items.some((i) => /Fixo/.test(i.name)));
   const url = new URL(items[0].wa_url);
   assert.equal(url.host, 'wa.me');
   assert.match(url.pathname, /^\/555198000000\d$/);
