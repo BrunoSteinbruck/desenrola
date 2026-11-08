@@ -9,7 +9,7 @@ import {
   get, getRequest, getRp, getSetting, listRequestsView, now, paymentView, postMessage, publicSettings, requestView, run,
   setSetting, updateRp,
 } from './db.ts';
-import { runDiagnostico } from './agents/diagnostico.ts';
+import { applyNewAddress, runDiagnostico } from './agents/diagnostico.ts';
 import { pushUserReply, recoverNegotiations } from './agents/negociador.ts';
 import { approve, cancelRequest, FlowError, reject } from './agents/relator.ts';
 import { rate } from './agents/followup.ts';
@@ -198,13 +198,17 @@ export async function buildApp() {
       onboarding_done: z.boolean().optional(),
     }).parse(req.body ?? {});
     const id = req.client!.id;
+    const before = getClient(id)!;
     updateClient(id, {
       ...(b.user_name !== undefined ? { name: b.user_name } : {}),
       ...(b.user_city !== undefined ? { city: b.user_city } : {}),
       ...(b.user_neighborhood !== undefined ? { neighborhood: b.user_neighborhood } : {}),
       ...(b.onboarding_done !== undefined ? { onboarding_done: b.onboarding_done ? 1 : 0 } : {}),
     });
-    return clientView(getClient(id)!);
+    const after = getClient(id)!;
+    // mudou o endereço: os pedidos ainda não enviados e o diagnóstico passam a usar o novo
+    if (after.city !== before.city || after.neighborhood !== before.neighborhood) applyNewAddress(id, after.city, after.neighborhood);
+    return clientView(after);
   });
 
   app.get('/api/health', async () => ({

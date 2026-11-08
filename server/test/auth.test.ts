@@ -146,6 +146,19 @@ test('dois clientes: cada um só vê e mexe nos próprios pedidos', async () => 
   assert.match(String(after.headers['set-cookie']), /ds_session=/, 'sessão encerrada: vira visitante novo');
 });
 
+test('mudar o endereço atualiza os pedidos ainda não enviados e avisa o diagnóstico', async () => {
+  const c = await login('51991110060');
+  await app.inject({ method: 'PUT', url: '/api/settings', headers: { cookie: c.cookie }, payload: { user_city: 'Porto Alegre', user_neighborhood: 'Centro' } });
+  const ts = now();
+  const open = Number(run("INSERT INTO requests (status, client_id, category, city, neighborhood, created_at, updated_at) VALUES ('escolhendo', ?, 'eletricista', 'Porto Alegre', 'Centro', ?, ?)", c.me.id, ts, ts).lastInsertRowid);
+  const sent = Number(run("INSERT INTO requests (status, client_id, category, city, neighborhood, created_at, updated_at) VALUES ('contatando', ?, 'eletricista', 'Porto Alegre', 'Centro', ?, ?)", c.me.id, ts, ts).lastInsertRowid);
+  await app.inject({ method: 'PUT', url: '/api/settings', headers: { cookie: c.cookie }, payload: { user_city: 'São Leopoldo', user_neighborhood: 'Centro' } });
+  const o = get<{ city: string; status: string }>('SELECT city, status FROM requests WHERE id = ?', open)!;
+  assert.deepEqual({ ...o }, { city: 'São Leopoldo', status: 'diagnostico' });
+  assert.match(get<{ pending_json: string }>("SELECT pending_json FROM agent_state WHERE request_id = ? AND agent = 'diagnostico'", open)!.pending_json, /São Leopoldo/);
+  assert.equal(get<{ city: string }>('SELECT city FROM requests WHERE id = ?', sent)!.city, 'Porto Alegre', 'pedido já enviado não muda');
+});
+
 test('admin: senha errada não entra; certa entra; sessão de cliente não abre o admin', async () => {
   const c = await login('51991110030');
   assert.equal((await app.inject({ url: '/api/admin/providers', headers: { cookie: c.cookie } })).statusCode, 401);

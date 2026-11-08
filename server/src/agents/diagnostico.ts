@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { MessageParam, ToolUseBlock } from '@anthropic-ai/sdk/resources/messages/messages';
 import { bus } from '../events.ts';
 import {
-  get, getRequest, postMessage, run, updateRequest, setRequestStatus, type Card,
+  all, get, getRequest, postMessage, run, updateRequest, setRequestStatus, type Card,
 } from '../db.ts';
 import { clientOfRequest, updateClient } from '../auth/clients.ts';
 import { withLock } from '../lib/lock.ts';
@@ -76,6 +76,38 @@ export function addDiagnosticoNote(requestId: number, note: string) {
 }
 
 const EDITABLE = new Set(['diagnostico', 'sem_prestadores', 'escolhendo']);
+
+/**
+ * O cliente mudou o endereço padrão: todo pedido que ainda não foi enviado pros profissionais passa a usar o novo,
+ * e o diagnóstico fica sabendo (nota no próximo turno). Pedido que já tinha lista de profissionais volta pro passo
+ * de procurar, pra buscar no lugar certo. Pedido já enviado não muda (os profissionais já foram avisados).
+ */
+export function applyNewAddress(clientId: number, city: string, neighborhood: string) {
+  const where = [neighborhood, city].filter(Boolean).join(', ');
+  const open = all<{ id: number; status: string; category: string | null }>(
+    "SELECT id, status, category FROM requests WHERE client_id = ? AND status IN ('diagnostico', 'sem_prestadores', 'escolhendo')",
+    clientId,
+  );
+  for (const r of open) {
+    updateRequest(r.id, { city: city || null, neighborhood: neighborhood || null });
+    addDiagnosticoNote(
+      r.id,
+      `Nota do sistema: o usuário mudou o endereço padrão para ${where}. Daqui pra frente use esse lugar, a menos que ele diga outro na conversa.`,
+    );
+    if (r.status !== 'diagnostico') {
+      run("DELETE FROM request_providers WHERE request_id = ? AND status IN ('sugerido', 'excluido')", r.id);
+      setRequestStatus(r.id, 'diagnostico');
+    }
+    postMessage(
+      r.id,
+      'system_event',
+      r.category && r.status !== 'diagnostico'
+        ? `Endereço atualizado pra ${where}. Clica de novo em "Ver ${r.category.toLowerCase()} da região" que eu procuro aí.`
+        : `Endereço atualizado pra ${where}.`,
+    );
+  }
+  return open.length;
+}
 
 export function runDiagnostico(requestId: number, userText: string): Promise<void> {
   return withLock(`f1:${requestId}`, () => turn(requestId, userText));
