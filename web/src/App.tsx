@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, subscribe, STATUS_LABEL, type Message, type RequestDetail, type RequestSummary, type Settings as SettingsData, type StreamEvent } from './api';
 import { Conversation } from './components/Conversation';
-import { Onboarding } from './components/Onboarding';
+import { MiniMap, Onboarding } from './components/Onboarding';
 import { AdminGate } from './admin/AdminGate';
 import { ProSignup } from './pro/ProSignup';
 import { Login } from './components/Login';
@@ -323,11 +323,18 @@ function Dialog({ title, onClose, children }: { title: string; onClose: () => vo
 
 function Settings({ onClose, onError }: { onClose: () => void; onError: (m: string) => void }) {
   const [s, setS] = useState<Record<string, string>>({});
+  const [loaded, setLoaded] = useState(false);
+  // mesmo mapa do onboarding: o lugar confirmado no mapa (nome corrigido) é o que salva
+  const [mapReady, setMapReady] = useState(false);
+  const [place, setPlace] = useState<{ city: string; neighborhood: string } | null>(null);
   useEffect(() => {
     api
       .getSettings()
-      .then((d) => setS({ user_name: d.user_name, user_city: d.user_city, user_neighborhood: d.user_neighborhood, user_phone: d.user_phone ? formatPhone(d.user_phone) : '' }))
-      .catch(() => {});
+      .then((d) => {
+        setS({ user_name: d.user_name, user_city: d.user_city, user_neighborhood: d.user_neighborhood, user_phone: d.user_phone ? formatPhone(d.user_phone) : '' });
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
   }, []);
   const field = (key: string, label: string, type = 'text', placeholder = '') => (
     <label className="field">
@@ -352,15 +359,17 @@ function Settings({ onClose, onError }: { onClose: () => void; onError: (m: stri
         {field('user_city', 'Cidade', 'text', 'Porto Alegre')}
         {field('user_neighborhood', 'Bairro', 'text', 'Bom Fim')}
       </div>
+      {loaded && <MiniMap city={s.user_city ?? ''} hood={s.user_neighborhood ?? ''} onReady={setMapReady} onPlace={setPlace} />}
       <button
         type="button"
         className="btn dark"
+        disabled={!!(s.user_neighborhood ?? '').trim() && !mapReady}
         onClick={() =>
           api
             .putSettings({
               user_name: s.user_name ?? '',
-              user_city: s.user_city ?? '',
-              user_neighborhood: s.user_neighborhood ?? '',
+              user_city: (place?.city ?? s.user_city ?? '').trim(),
+              user_neighborhood: (place?.neighborhood ?? s.user_neighborhood ?? '').trim(),
             })
             .then(onClose)
             .catch((e) => onError(e instanceof Error && e.message ? e.message : 'Não consegui salvar.'))

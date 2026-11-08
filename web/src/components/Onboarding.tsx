@@ -137,7 +137,7 @@ function Progress({ at }: { at: 1 | 2 }) {
  * Mapinha do Google (embed sem chave). Aparece logo que bairro e cidade param de mudar;
  * `onReady(true)` só depois que o mapa carregou (ou não deu pra carregar), pra o "É aqui" fazer sentido.
  */
-function MiniMap({
+export function MiniMap({
   city,
   hood,
   onReady,
