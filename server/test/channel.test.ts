@@ -48,12 +48,12 @@ test('variáveis são sanitizadas e obrigatórias', () => {
   assert.equal(sanitizeVar('   '), '-');
   assert.equal(sanitizeVar('x'.repeat(300)).length, 200);
   assert.throws(() => buildVars('pedido_novo', { pedido: '1' }), /falta a variável/);
-  const v = buildVars('pedido_novo', { pedido: '12', categoria: 'eletricista', bairro: 'Cidade Baixa', resumo: 'tomada\nsoltando faísca' });
-  assert.equal(renderTemplate('pedido_novo', v).startsWith('Pedido #12 de eletricista em Cidade Baixa: tomada soltando faísca.'), true);
+  const v = buildVars('pedido_novo', { pedido: '12', categoria: 'eletricista', bairro: 'Cidade Baixa', relato: 'tomada\nsoltando faísca' });
+  assert.ok(renderTemplate('pedido_novo', v).startsWith('Pedido #12: eletricista em Cidade Baixa\nO cliente contou: "tomada soltando faísca"'));
 });
 
 test('template que exige opt-in não sai sem ele; o de confirmação sai', () => {
-  const vars = { pedido: '1', categoria: 'eletricista', bairro: 'Centro', resumo: 'x' };
+  const vars = { pedido: '1', categoria: 'eletricista', bairro: 'Centro', relato: 'x' };
   assert.throws(() => ch.enqueue({ to: P1, template: 'pedido_novo', vars }), (e: Error & { code?: string }) => e.code === 'sem_opt_in');
   const id = ch.enqueue({ to: P1, template: 'boas_vindas', vars: { nome: 'Marcos', categoria: 'eletricista', regiao: 'Centro' } });
   assert.ok(id > 0);
@@ -144,7 +144,7 @@ test('botão "Sim, quero receber" grava o opt-in com a prova', async () => {
   assert.ok(c.opt_in_at);
   assert.match(c.opt_in_text!, /Sim, quero receber/);
   // agora pedido_novo pode sair
-  assert.ok(ch.enqueue({ to: P, template: 'pedido_novo', vars: { pedido: '2', categoria: 'encanador', bairro: 'Bom Fim', resumo: 'vazamento' } }) > 0);
+  assert.ok(ch.enqueue({ to: P, template: 'pedido_novo', vars: { pedido: '2', categoria: 'encanador', bairro: 'Bom Fim', relato: 'vazamento' } }) > 0);
 });
 
 test('"PARAR" vira opt-out, bloqueia a fila e "voltar" desfaz', async () => {
@@ -178,7 +178,7 @@ test('frase longa com "parar" não é opt-out', async () => {
 test('evento duplicado (retry da Twilio) é processado uma vez só; clique traz a mensagem original', async () => {
   const P = '5551990000008';
   recordOptIn(P, 'teste');
-  const outId = ch.enqueue({ to: P, template: 'pedido_novo', vars: { pedido: '3', categoria: 'eletricista', bairro: 'Centro', resumo: 'tomada' }, ref: 'offer:3' });
+  const outId = ch.enqueue({ to: P, template: 'pedido_novo', vars: { pedido: '3', categoria: 'eletricista', bairro: 'Centro', relato: 'tomada' }, ref: 'offer:3' });
   due();
   await drainOutbox(stub);
   const sid = get<{ provider_msg_id: string }>('SELECT provider_msg_id FROM wa_outbox WHERE id = ?', outId)!.provider_msg_id;

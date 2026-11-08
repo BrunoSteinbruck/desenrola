@@ -47,11 +47,11 @@ export const TEMPLATES = {
   },
   pedido_novo: {
     category: 'utility',
-    body: 'Pedido #{{1}} de {{2}} em {{3}}: {{4}}. Tu recebe esta mensagem porque te cadastraste no Desenrola para receber pedidos.',
-    vars: ['pedido', 'categoria', 'bairro', 'resumo'],
-    samples: ['128', 'eletricista', 'Cidade Baixa', 'chuveiro parou de esquentar, provavelmente a resistência'],
+    // a oferta já leva tudo: o profissional responde direto com o valor (sem "Ver detalhes")
+    body: 'Pedido #{{1}}: {{2}} em {{3}}\nO cliente contou: "{{4}}"\n\nSe puder atender, responde aqui com um valor aproximado (pode ser só a visita) e quando poderia ir.',
+    vars: ['pedido', 'categoria', 'bairro', 'relato'],
+    samples: ['128', 'eletricista', 'Cidade Baixa', 'o disjuntor ta desarmando o tempo todo'],
     buttons: [
-      { id: 'ver', title: 'Ver detalhes' },
       { id: 'agora_nao', title: 'Agora não' },
       { id: 'parar', title: 'Parar de receber' },
     ],
@@ -59,13 +59,10 @@ export const TEMPLATES = {
   },
   prestador_lembrete: {
     category: 'utility',
-    body: 'O pedido #{{1}} de {{2}} em {{3}} ainda está aberto. Se quiser passar orçamento, é só tocar em Ver detalhes.',
+    body: 'O pedido #{{1}} ({{2}} em {{3}}) ainda está aberto. Se puder atender, é só responder aqui com um valor aproximado.',
     vars: ['pedido', 'categoria', 'bairro'],
     samples: ['128', 'eletricista', 'Cidade Baixa'],
-    buttons: [
-      { id: 'ver', title: 'Ver detalhes' },
-      { id: 'agora_nao', title: 'Agora não' },
-    ],
+    buttons: [{ id: 'agora_nao', title: 'Agora não' }],
     requiresOptIn: true,
   },
   pergunta_do_cliente: {

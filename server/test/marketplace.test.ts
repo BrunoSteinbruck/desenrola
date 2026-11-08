@@ -203,6 +203,20 @@ test('um pedido por vez: o segundo espera na fila e começa quando o primeiro or
   assert.match(turns.at(-1)!, /primeira mensagem/);
 });
 
+test('oferta completa: o profissional responde direto com o valor (sem Ver detalhes) e vira orçamento', async () => {
+  const e = newRequest('o disjuntor ta desarmando o tempo todo.');
+  offers.findProviders(e);
+  run('UPDATE request_providers SET selected = 0 WHERE request_id = ? AND provider_id = ?', e, marcosId);
+  offers.dispatch(e);
+  await settle();
+  const offer = [...outbox(JOAO)].reverse().find((r) => r.template_key === 'pedido_novo' && r.ref === `rp:${rpFor(e, joaoId).id}`)!;
+  assert.equal(JSON.parse(offer.payload_json).vars['4'], 'o disjuntor ta desarmando o tempo todo', 'relato do cliente, sem ponto final duplicado');
+  await say(JOAO, 'fica 150 a visita com avaliação do quadro, amanhã de manhã', { repliedToMsgId: offer.provider_msg_id! });
+  assert.equal(rpFor(e, joaoId).status, 'orcou');
+  assert.doesNotMatch(turns.at(-1)!, /Escreve agora a primeira mensagem/);
+  assert.match(turns.at(-1)!, /NÃO repete o pedido/);
+});
+
 test('"Agora não" recusa, pausa o prestador e o pedido sem ninguém avisa o cliente', async () => {
   const c = newRequest('luz do banheiro piscando');
   offers.findProviders(c);

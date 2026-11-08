@@ -93,7 +93,18 @@ export function findProviders(requestId: number) {
 // ---------- 2. oferta ----------
 
 /** Resumo que vai no template (sem dado pessoal; o diagnóstico já escreve assim). */
-const offerSummary = (summary: string | null, title: string | null) => (summary || title || 'serviço').replace(/\s+/g, ' ').slice(0, 200);
+/** O relato do cliente com as palavras dele (o que ele escreveu primeiro), curto. Sem dado pessoal: é o texto do problema. */
+function offerStory(requestId: number, fallback: string | null) {
+  // o diagnóstico escreve um relato curto juntando o que o cliente contou (inclusive a resposta à pergunta extra)
+  let curto: string | undefined;
+  try {
+    curto = JSON.parse(getRequest(requestId)?.details_json ?? '{}').relato_curto;
+  } catch {
+    curto = undefined;
+  }
+  const first = get<{ content: string }>("SELECT content FROM messages WHERE request_id = ? AND role = 'user' ORDER BY id LIMIT 1", requestId)?.content;
+  return (curto || first || fallback || 'serviço').replace(/\s+/g, ' ').trim().replace(/[.!?…]+$/, '').slice(0, 200);
+}
 
 export function dispatch(requestId: number) {
   const req = getRequest(requestId);
@@ -118,7 +129,7 @@ export function dispatch(requestId: number) {
           pedido: String(requestId),
           categoria: req.category ?? 'serviço',
           bairro: req.neighborhood || req.city || '-',
-          resumo: offerSummary(req.summary, req.title),
+          relato: offerStory(req.id, req.title),
         },
         ref: `rp:${rp.id}`,
       });

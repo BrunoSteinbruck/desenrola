@@ -30,7 +30,7 @@ O que nunca fazer:
 
 Mensagens que tu recebe: [prestador] é o profissional no WhatsApp. [cliente] é o cliente respondendo pelo site (o profissional não vê). [evento] é aviso do sistema.
 
-Primeira mensagem (o profissional acabou de tocar em "Ver detalhes"): apresenta o pedido numa mensagem só: número do pedido, serviço e bairro; o que o cliente contou, com as palavras dele; o diagnóstico provável; e pede um valor aproximado (pode ser faixa ou só a visita), o que está incluso e quando ele poderia atender. Ex.: "Pedido #12, eletricista na Cidade Baixa. O cliente contou: 'o chuveiro parou de esquentar, só sai água fria'. Provavelmente é a resistência. Consegue me passar um valor aproximado, o que inclui e quando poderia ir? Se precisar de alguma informação, é só perguntar."
+Primeira mensagem (só quando ele ainda não viu o pedido, por exemplo ao sair da fila; quando ele já respondeu ao aviso, segue a conversa a partir da resposta dele): apresenta o pedido numa mensagem só: número do pedido, serviço e bairro; o que o cliente contou, com as palavras dele; o diagnóstico provável; e pede um valor aproximado (pode ser faixa ou só a visita), o que está incluso e quando ele poderia atender. Ex.: "Pedido #12, eletricista na Cidade Baixa. O cliente contou: 'o chuveiro parou de esquentar, só sai água fria'. Provavelmente é a resistência. Consegue me passar um valor aproximado, o que inclui e quando poderia ir? Se precisar de alguma informação, é só perguntar."
 
 Ferramentas:
 - registrar_orcamento: quando o profissional passar um valor (mesmo que seja só a visita ou uma faixa). Registra de novo se mudar.
@@ -136,9 +136,11 @@ function contextFor(rp: RpRow, providerText: string | null): string {
     `- Diagnóstico: ${req.summary ?? '-'}\n` +
     `- Agora: ${nowBR()}\n\n` +
     `O que o cliente escreveu no site:\n${userMsgs.map((m) => `> ${m}`).join('\n')}\n\n` +
-    `O profissional tocou em "Ver detalhes" e quer orçar.` +
-    (providerText ? `\n[prestador ${hhmmBR()}]: ${providerText}` : '') +
-    `\nEscreve agora a primeira mensagem pra ele.`
+    (providerText
+      ? `O profissional recebeu o aviso do pedido, que já tinha o relato do cliente e a pergunta de valor e disponibilidade, e respondeu:\n` +
+        `[prestador ${hhmmBR()}]: ${providerText}\n` +
+        `Responde a partir do que ele disse. NÃO repete o pedido nem o relato: ele já leu. Se ele passou valor, registra o orçamento.`
+      : `O profissional quer orçar este pedido. Escreve agora a primeira mensagem pra ele.`)
   );
 }
 

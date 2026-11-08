@@ -17,9 +17,12 @@ const AGENT = 'diagnostico';
 const SYSTEM = `Tu é o Desenrola, um assistente que ajuda pessoas a resolver problemas de casa e serviços (elétrica, encanamento, chaveiro, pintura, montagem de móveis, ar-condicionado, etc.). Depois de entender o problema, o Desenrola avisa profissionais cadastrados da região, que mandam orçamento pelo nosso WhatsApp; o usuário compara e escolhe aqui no site.
 
 Teu trabalho aqui é só o diagnóstico:
-- Entende o que é o problema, a urgência e o bairro/cidade. Faz no máximo 1 a 3 perguntas curtas, uma de cada vez, e só o que for necessário.
-- Se a cidade não for dita, usa a cidade padrão do usuário informada no contexto.
-- Assim que souber a profissão certa e o bairro, chama a ferramenta definir_diagnostico. Não espera confirmação pra chamar.
+- Entende o que é o problema e onde é (bairro/cidade). Se a cidade não for dita, usa a cidade padrão do usuário informada no contexto.
+- Antes de chamar definir_diagnostico, te pergunta: com o que o usuário contou, um profissional já conseguiria dar um valor aproximado?
+  - Se SIM (o problema está bem descrito: o que é, o que acontece e onde), chama definir_diagnostico direto, sem perguntar mais nada.
+  - Se NÃO (ex.: uma frase só e vaga, tipo "disjuntor desarmando" ou "pia com problema"), faz UMA pergunta, a que mais ajuda o profissional a orçar. Pode juntar duas coisas curtas na mesma pergunta. Ex.: "Desarma quando tu liga algum aparelho específico, tipo o chuveiro, ou do nada? E é o disjuntor geral ou um só?". Depois da resposta, chama definir_diagnostico, mesmo que ainda falte algum detalhe.
+  - Nunca pergunta o que o usuário já disse, nem coisas que o profissional resolve na visita.
+- No máximo uma pergunta sobre o problema e, se precisar, uma sobre o bairro. Não transforma isso num questionário.
 - Depois de chamar, diz em uma frase qual profissional ele precisa e pergunta se pode chamar os da região (ex.: "Pra isso tu precisa de um eletricista. Quer que eu chame os da tua região?"). O usuário confirma por um botão.
 - Escreve em português do Brasil, tom simples e próximo, pode usar "tu". Respostas curtas, sem listas longas, sem emoji.
 - Não dá orçamento nem preço, não promete prazos. Se for algo perigoso (cheiro de gás, fio pegando fogo), orienta a segurança primeiro (desligar o disjuntor, sair do local, ligar pros bombeiros 193).
@@ -38,6 +41,11 @@ const TOOLS = [
       resumo_para_prestador: {
         type: 'string',
         description: 'Descrição objetiva do problema pra mandar ao prestador (2-4 frases). Sem nome, endereço ou telefone do usuário.',
+      },
+      relato_curto: {
+        type: 'string',
+        description:
+          'O problema em até 180 caracteres, com as palavras e os detalhes que o usuário deu, como ele mesmo contaria pro profissional. Sem ponto final, sem dado pessoal. Ex.: "o disjuntor geral desarma toda vez que ligo o chuveiro, o resto da casa funciona normal".',
       },
       profissao: { type: 'string', description: 'Profissão a buscar, no singular, ex.: "eletricista", "encanador", "chaveiro"' },
       cidade: { type: 'string' },
@@ -152,7 +160,7 @@ async function turn(requestId: number, userText: string) {
     if (b.name !== 'definir_diagnostico') return { content: 'Ferramenta desconhecida.', isError: true };
     const cur = getRequest(requestId)!;
     if (!EDITABLE.has(cur.status)) return { content: 'O pedido já está em andamento; o diagnóstico não pode mais mudar.', isError: true };
-    const i = toolInput<{ titulo: string; resumo_para_prestador: string; profissao: string; cidade: string; bairro: string; urgencia: string }>(b);
+    const i = toolInput<{ titulo: string; resumo_para_prestador: string; relato_curto: string; profissao: string; cidade: string; bairro: string; urgencia: string }>(b);
     if (!i.profissao || !i.bairro) return { content: 'Faltou profissão ou bairro.', isError: true };
     if (cur.status === 'escolhendo') run("DELETE FROM request_providers WHERE request_id = ? AND status IN ('sugerido','excluido')", requestId);
     updateRequest(requestId, {
@@ -161,7 +169,7 @@ async function turn(requestId: number, userText: string) {
       category: i.profissao,
       city: i.cidade || clientOfRequest(requestId)?.city || 'Porto Alegre',
       neighborhood: i.bairro,
-      details_json: JSON.stringify({ urgencia: i.urgencia }),
+      details_json: JSON.stringify({ urgencia: i.urgencia, relato_curto: i.relato_curto }),
     });
     if (cur.status !== 'diagnostico') setRequestStatus(requestId, 'diagnostico');
     // lembra o lugar pro próximo pedido (visitante ou cliente que ainda não tinha bairro)
