@@ -49,7 +49,7 @@ test('variáveis são sanitizadas e obrigatórias', () => {
   assert.equal(sanitizeVar('x'.repeat(300)).length, 200);
   assert.throws(() => buildVars('pedido_novo', { pedido: '1' }), /falta a variável/);
   const v = buildVars('pedido_novo', { pedido: '12', categoria: 'eletricista', bairro: 'Cidade Baixa', relato: 'tomada\nsoltando faísca' });
-  assert.ok(renderTemplate('pedido_novo', v).startsWith('Pedido #12: eletricista em Cidade Baixa\nO cliente contou: "tomada soltando faísca"'));
+  assert.ok(renderTemplate('pedido_novo', v).startsWith('Pedido #12: eletricista em Cidade Baixa\nRelato do cliente: "tomada soltando faísca"'));
 });
 
 test('template que exige opt-in não sai sem ele; o de confirmação sai', () => {

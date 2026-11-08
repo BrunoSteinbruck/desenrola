@@ -48,7 +48,7 @@ export const TEMPLATES = {
   pedido_novo: {
     category: 'utility',
     // a oferta já leva tudo: o profissional responde direto com o valor (sem "Ver detalhes")
-    body: 'Pedido #{{1}}: {{2}} em {{3}}\nO cliente contou: "{{4}}"\n\nSe puder atender, responde aqui com um valor aproximado (pode ser só a visita) e quando poderia ir.',
+    body: 'Pedido #{{1}}: {{2}} em {{3}}\nRelato do cliente: "{{4}}"\n\nSe puder atender, responde aqui com um valor aproximado e qual data poderia ir.',
     vars: ['pedido', 'categoria', 'bairro', 'relato'],
     samples: ['128', 'eletricista', 'Cidade Baixa', 'o disjuntor ta desarmando o tempo todo'],
     buttons: [
