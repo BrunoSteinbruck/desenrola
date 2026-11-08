@@ -33,9 +33,7 @@ services:
       # Senha do /admin (obrigatória em produção: sem ela o servidor não sobe). Veja o valor no dashboard.
       - key: ADMIN_PASSWORD
         generateValue: true
-      # Opcional: esconde o site inteiro antes do lançamento (Basic). Apague a variável pra abrir pros clientes.
-      - key: SITE_PASSWORD
-        generateValue: true
+      # (opcional) SITE_PASSWORD esconde o site inteiro (Basic). Não usamos: o site é aberto.
       # Preencher no dashboard:
       # PUBLIC_URL = https://<este-servico>.onrender.com (links nos avisos pro cliente)
       # ANTHROPIC_API_KEY

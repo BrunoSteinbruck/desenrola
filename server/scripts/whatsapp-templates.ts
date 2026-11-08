@@ -58,16 +58,26 @@ if (cmd === 'list' || !auth) {
   const env: string[] = [];
   for (const k of keys) {
     const t = TEMPLATES[k];
+    let sidCreated: string | null = contentSidFor(k);
     try {
-      const c = await api(CONTENT, { method: 'POST', body: JSON.stringify(contentPayload(k)) });
-      await api(`${CONTENT}/${c.sid}/ApprovalRequests/whatsapp`, {
+      if (!sidCreated) {
+        const c = await api(CONTENT, { method: 'POST', body: JSON.stringify(contentPayload(k)) });
+        sidCreated = String(c.sid);
+      }
+      env.push(`WA_TPL_${k.toUpperCase()}=${sidCreated}`);
+    } catch (e) {
+      console.log(`✗ ${k}: não criou o conteúdo: ${(e as Error).message}`);
+      continue;
+    }
+    // aprovação da Meta: no sandbox/trial costuma falhar (sem WhatsApp Business próprio); o conteúdo serve pra testar mesmo assim
+    try {
+      await api(`${CONTENT}/${sidCreated}/ApprovalRequests/whatsapp`, {
         method: 'POST',
         body: JSON.stringify({ name: `desenrola_${k}`, category: t.category.toUpperCase() }),
       });
-      console.log(`✓ ${k}: ${c.sid} enviado pra aprovação (${t.category})`);
-      env.push(`WA_TPL_${k.toUpperCase()}=${c.sid}`);
+      console.log(`✓ ${k}: ${sidCreated} criado e enviado pra aprovação (${t.category})`);
     } catch (e) {
-      console.log(`✗ ${k}: ${(e as Error).message}`);
+      console.log(`~ ${k}: ${sidCreated} criado; aprovação não enviada: ${(e as Error).message.slice(0, 160)}`);
     }
   }
   if (env.length) console.log(`\nCole no .env (e no Render):\n${env.join('\n')}`);
