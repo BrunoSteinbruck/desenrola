@@ -3,9 +3,10 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { all, get, now, run } from '../db.ts';
-import { recordOptIn, recordOptOut, touchInbound } from './store.ts';
+import { recordOptIn, recordOptOut, setWaId, touchInbound } from './store.ts';
 import { applyDeliveryStatus, drainOutbox, enqueue, outboxRowByMsgId, recoverOutbox, type OutboxRow } from './outbox.ts';
 import { StubChannel } from './stub.ts';
+import { canonicalBR } from '../services/phone.ts';
 import { TwilioChannel, twilioConfigFromEnv } from './twilio.ts';
 import type { Channel, InboundEvent, InboundMessage } from './types.ts';
 
@@ -60,6 +61,7 @@ export function onInboundMessage(fn: MessageHandler) {
 
 async function handleMessage(msg: InboundMessage) {
   touchInbound(msg.from, now(), msg.profileName);
+  if (msg.waId) setWaId(msg.from, msg.waId);
   const repliedTo = msg.repliedToMsgId ? outboxRowByMsgId(msg.repliedToMsgId) ?? null : null;
   const said = msg.buttonText || msg.text;
 
@@ -74,7 +76,7 @@ async function handleMessage(msg: InboundMessage) {
     consentHandler?.(msg.from, 'opt_out');
     // a pessoa acabou de escrever, a janela está aberta: a confirmação pode ir em texto livre
     // (a única mensagem que ainda pode sair depois do opt-out; vai direto, sem passar pela trava)
-    await channel.sendText(msg.from, 'Pronto, não vamos mais te mandar mensagens. Se mudar de ideia, manda VOLTAR.').catch(() => {});
+    await channel.sendText(msg.waId || msg.from, 'Pronto, não vamos mais te mandar mensagens. Se mudar de ideia, manda VOLTAR.').catch(() => {});
     return;
   }
   if (isCommand(said, START_WORDS)) {
@@ -167,7 +169,7 @@ export async function registerWhatsAppRoutes(app: FastifyInstance) {
       const ev: InboundMessage = {
         kind: 'message',
         providerMsgId: `SMdev${Date.now()}${Math.floor(Math.random() * 1000)}`,
-        from: b.from,
+        from: canonicalBR(b.from),
         profileName: null,
         text: b.text,
         buttonId: b.buttonId ?? null,

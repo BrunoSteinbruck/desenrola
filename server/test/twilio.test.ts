@@ -34,13 +34,17 @@ test('parser: mensagem com botão e mídia; status de entrega', () => {
     NumMedia: '1', MediaUrl0: 'https://api.twilio.com/m/1', MediaContentType0: 'image/jpeg',
   });
   assert.deepEqual(m, {
-    kind: 'message', providerMsgId: 'SM1', from: '5551999990000', profileName: 'Marcos', text: 'Ver detalhes',
+    kind: 'message', providerMsgId: 'SM1', from: '5551999990000', waId: '5551999990000', profileName: 'Marcos', text: 'Ver detalhes',
     buttonId: 'ver', buttonText: 'Ver detalhes', repliedToMsgId: 'SM0', media: [{ url: 'https://api.twilio.com/m/1', contentType: 'image/jpeg' }],
   });
   assert.deepEqual(parseTwilioWebhook({ MessageSid: 'SM2', MessageStatus: 'delivered', SmsStatus: 'delivered' }), [
     { kind: 'status', providerMsgId: 'SM2', status: 'delivered', errorCode: null },
   ]);
   assert.deepEqual(parseTwilioWebhook({}), []);
+  // WhatsApp de conta antiga vem sem o 9º dígito: o telefone fica canônico e o waId guarda o formato real
+  const [old] = parseTwilioWebhook({ MessageSid: 'SM3', SmsStatus: 'received', From: 'whatsapp:+555185907072', WaId: '555185907072', Body: 'oi' });
+  assert.equal((old as { from: string }).from, '5551985907072');
+  assert.equal((old as { waId: string }).waId, '555185907072');
 });
 
 test('rota do webhook: recusa sem assinatura, aceita a da Twilio e grava a entrada', async () => {

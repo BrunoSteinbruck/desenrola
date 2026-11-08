@@ -28,7 +28,10 @@ export interface Channel {
 export type InboundMessage = {
   kind: 'message';
   providerMsgId: string;
+  /** telefone canônico (celular BR sempre com o 9º dígito) */
   from: Phone;
+  /** como o WhatsApp identifica a pessoa (pode vir sem o 9º dígito); é por ele que se responde */
+  waId?: string | null;
   profileName: string | null;
   text: string;
   /** id do botão tocado (quick reply), quando houver */

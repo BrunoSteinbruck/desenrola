@@ -37,6 +37,24 @@ export function waCandidates(e164: string): string[] {
   return [...out];
 }
 
+/**
+ * Forma canônica de celular BR: sempre com o 9º dígito. O WhatsApp de contas antigas usa o número
+ * sem o 9 ("555185907072"); aqui vira "5551985907072" pra bater com o cadastro.
+ */
+export function canonicalBR(raw: string): string {
+  const d = digits(raw);
+  if (d.length === 12 && d.startsWith('55') && /^[6-9]/.test(d.slice(4))) return `${d.slice(0, 4)}9${d.slice(4)}`;
+  return d;
+}
+
+/** O outro formato do mesmo celular (com ↔ sem o 9º dígito), ou null se não houver. */
+export function altWhatsAppBR(phone: string): string | null {
+  const d = digits(phone);
+  if (d.length === 13 && d.startsWith('55') && d[4] === '9') return `${d.slice(0, 4)}${d.slice(5)}`;
+  if (d.length === 12 && d.startsWith('55') && /^[6-9]/.test(d.slice(4))) return `${d.slice(0, 4)}9${d.slice(4)}`;
+  return null;
+}
+
 export function formatBR(e164: string): string {
   const ddd = e164.slice(2, 4);
   const local = e164.slice(4);

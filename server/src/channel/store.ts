@@ -60,8 +60,14 @@ CREATE TABLE IF NOT EXISTS wa_content_cache (
 );
 `);
 
+// formato que o WhatsApp usa pra esse telefone (ex.: sem o 9º dígito); null = o próprio phone
+if (!(db.prepare('PRAGMA table_info(wa_contacts)').all() as { name: string }[]).some((c) => c.name === 'wa_id')) {
+  db.exec('ALTER TABLE wa_contacts ADD COLUMN wa_id TEXT');
+}
+
 export type ContactRow = {
   phone: Phone;
+  wa_id?: string | null;
   profile_name: string | null;
   opt_in_at: string | null;
   opt_in_text: string | null;
@@ -79,6 +85,12 @@ export function getContact(phone: Phone) {
 function ensureContact(phone: Phone) {
   const t = now();
   run('INSERT OR IGNORE INTO wa_contacts (phone, created_at, updated_at) VALUES (?, ?, ?)', phone, t, t);
+}
+
+/** Guarda o formato exato que o WhatsApp usa pra esse telefone (aprendido de uma mensagem dele ou de uma falha). */
+export function setWaId(phone: Phone, waId: string | null) {
+  ensureContact(phone);
+  run('UPDATE wa_contacts SET wa_id = ?, updated_at = ? WHERE phone = ?', waId && waId !== phone ? waId : null, now(), phone);
 }
 
 export function touchInbound(phone: Phone, at: string, profileName: string | null) {

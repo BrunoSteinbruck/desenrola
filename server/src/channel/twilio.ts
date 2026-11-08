@@ -1,6 +1,7 @@
 // Twilio WhatsApp via REST, sem SDK (mesmo desenho do Convivar: apps/api/src/whatsapp/).
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { get, now, run } from '../db.ts';
+import { canonicalBR } from '../services/phone.ts';
 import { ChannelError, type Button, type Channel, type InboundEvent, type Phone } from './types.ts';
 
 const API = 'https://api.twilio.com/2010-04-01';
@@ -65,7 +66,8 @@ export function parseTwilioWebhook(p: Record<string, string>): InboundEvent[] {
     {
       kind: 'message',
       providerMsgId: sid,
-      from: phoneFromAddress(p.From),
+      from: canonicalBR(phoneFromAddress(p.From)),
+      waId: (p.WaId || phoneFromAddress(p.From)) || null,
       profileName: p.ProfileName || null,
       text: p.Body ?? '',
       buttonId: p.ButtonPayload || null,

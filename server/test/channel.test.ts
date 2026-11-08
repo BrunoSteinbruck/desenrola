@@ -200,3 +200,27 @@ test('evento duplicado (retry da Twilio) é processado uma vez só; clique traz 
   assert.equal(get<{ delivery_status: string }>('SELECT delivery_status FROM wa_outbox WHERE id = ?', outId)!.delivery_status, 'read');
   assert.equal(get<{ n: number }>("SELECT COUNT(*) AS n FROM wa_inbound WHERE provider_msg_id = ? AND kind = 'status'", sid)!.n, 3);
 });
+
+test('9º dígito: aprende o formato do WhatsApp e, se o envio falhar por número desconhecido, tenta o outro', async () => {
+  const P = '5551985907072';
+  touchInbound(P, new Date().toISOString(), null);
+  recordOptIn(P, 'teste');
+  // sem saber o formato: manda com o 9; o Twilio avisa que o número não está no sandbox (63015)
+  const id = ch.enqueue({ to: P, text: 'oi' });
+  run("UPDATE wa_outbox SET not_before = '2000-01-01T00:00:00.000Z' WHERE state = 'queued'");
+  await drainOutbox(stub);
+  const first = stub.sent.at(-1)!;
+  assert.equal(first.to, P);
+  const sid = get<{ provider_msg_id: string }>('SELECT provider_msg_id FROM wa_outbox WHERE id = ?', id)!.provider_msg_id;
+  ch.storeEvents([{ kind: 'status', providerMsgId: sid, status: 'failed', errorCode: '63015' }]);
+  await ch.processInbound();
+  assert.equal(getContact(P)!.wa_id, '555185907072');
+  run("UPDATE wa_outbox SET not_before = '2000-01-01T00:00:00.000Z' WHERE state = 'queued'");
+  await drainOutbox(stub);
+  assert.equal(stub.sent.at(-1)!.to, '555185907072', 'reenviou sem o 9');
+  // segunda falha não fica trocando de formato pra sempre
+  const sid2 = stub.sent.at(-1)!.id;
+  ch.storeEvents([{ kind: 'status', providerMsgId: sid2, status: 'failed', errorCode: '63015' }]);
+  await ch.processInbound();
+  assert.equal(get<{ n: number }>("SELECT COUNT(*) AS n FROM wa_outbox WHERE to_phone = ? AND state = 'queued'", P)!.n, 0);
+});

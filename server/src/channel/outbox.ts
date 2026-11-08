@@ -5,7 +5,8 @@
 // - uma mensagem por vez por destinatário, na ordem, com intervalo mínimo;
 // - retry com espera crescente quando o erro é temporário.
 import { all, get, now, run } from '../db.ts';
-import { getContact, windowOpen } from './store.ts';
+import { getContact, setWaId, windowOpen } from './store.ts';
+import { altWhatsAppBR } from '../services/phone.ts';
 import { buildVars, contentSidFor, renderTemplate, TEMPLATES, type TemplateKey } from './templates.ts';
 import { ChannelError, type Button, type Channel, type Phone } from './types.ts';
 import { maskPhone } from './stub.ts';
@@ -148,15 +149,17 @@ async function sendRow(channel: Channel, row: OutboxRow): Promise<string> {
   const c = getContact(row.to_phone);
   if (c?.opt_out_at) throw new OutboxError('opt-out depois de entrar na fila', 'opt_out');
   const p = JSON.parse(row.payload_json);
+  // manda no formato que o WhatsApp conhece (ex.: sem o 9º dígito), se já aprendemos
+  const to = c?.wa_id || row.to_phone;
   if (row.kind === 'template') {
     const sid = contentSidFor(row.template_key!) ?? (channel.real ? null : `stub:${row.template_key}`);
     if (!sid) throw new OutboxError(`Template "${row.template_key}" sem SID aprovado (WA_TPL_${row.template_key!.toUpperCase()})`, 'template_sem_sid');
-    return channel.sendTemplate(row.to_phone, sid, p.vars);
+    return channel.sendTemplate(to, sid, p.vars);
   }
   // a janela pode ter fechado enquanto a mensagem esperava na fila
   if (!windowOpen(row.to_phone)) throw new OutboxError('A janela de 24h fechou antes do envio', 'janela_fechada');
-  if (row.kind === 'interactive') return channel.sendInteractive(row.to_phone, p.body, p.buttons);
-  return channel.sendText(row.to_phone, p.text);
+  if (row.kind === 'interactive') return channel.sendInteractive(to, p.body, p.buttons);
+  return channel.sendText(to, p.text);
 }
 
 const STATUS_RANK: Record<string, number> = { queued: 0, accepted: 0, sending: 1, sent: 2, delivered: 3, read: 4 };
@@ -172,9 +175,33 @@ export function applyDeliveryStatus(providerMsgId: string, status: string, error
       'UPDATE wa_outbox SET delivery_status = ?, last_error = COALESCE(?, last_error), updated_at = ? WHERE id = ?',
       status, failed ? `entrega: ${status}${errorCode ? ` (${errorCode})` : ''}` : null, now(), row.id,
     );
+    if (failed && retryOtherFormat(row, errorCode)) return row;
     if (failed) onFailure({ row: { ...row, delivery_status: status }, error: `entrega ${status} ${errorCode ?? ''}`.trim() });
   }
   return row;
+}
+
+/** Erros de "destinatário não existe/não está no sandbox": vale tentar o outro formato do número (9º dígito). */
+const WRONG_RECIPIENT = new Set(['63003', '63015', '63024']);
+
+/**
+ * O WhatsApp não achou o número: se ainda não sabemos o formato certo, troca pelo outro (com ↔ sem o 9)
+ * e manda de novo uma cópia. Só uma vez por telefone (o wa_id fica gravado).
+ */
+function retryOtherFormat(row: OutboxRow, errorCode: string | null) {
+  if (!errorCode || !WRONG_RECIPIENT.has(errorCode)) return false;
+  const c = getContact(row.to_phone);
+  if (c?.wa_id) return false; // já tentamos o outro formato
+  const alt = altWhatsAppBR(row.to_phone);
+  if (!alt) return false;
+  setWaId(row.to_phone, alt);
+  const t = now();
+  run(
+    'INSERT INTO wa_outbox (to_phone, kind, template_key, payload_json, ref, not_before, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    row.to_phone, row.kind, row.template_key, row.payload_json, row.ref, t, t, t,
+  );
+  console.warn(`[whatsapp] ${errorCode} pra +${maskPhone(row.to_phone)}: tentando o outro formato do número`);
+  return true;
 }
 
 /** Depois de cair no meio de um envio não dá pra saber se saiu: volta pra fila (duplicar é melhor que perder). */
