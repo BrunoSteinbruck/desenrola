@@ -1,7 +1,8 @@
 // Envia os templates de server/src/channel/templates.ts pra aprovação da Meta via Twilio Content API.
 //
 //   npm run wa:templates                 # mostra o que seria enviado (não precisa de credencial)
-//   npm run wa:templates -- submit       # cria os Contents e pede aprovação (todos)
+//   npm run wa:templates -- create       # só cria os Contents no Twilio (serve pro sandbox; não vai pra Meta)
+//   npm run wa:templates -- submit       # cria (se precisar) E manda pra revisão da Meta — só com o número oficial
 //   npm run wa:templates -- submit pedido_novo boas_vindas
 //   npm run wa:templates -- status       # situação da aprovação (lê os WA_TPL_* do .env)
 //
@@ -54,7 +55,7 @@ if (cmd === 'list' || !auth) {
     if ('buttons' in t && t.buttons) console.log(`  botões: ${t.buttons.map((b) => b.title).join(' | ')}`);
     console.log();
   }
-} else if (cmd === 'submit') {
+} else if (cmd === 'submit' || cmd === 'create') {
   const env: string[] = [];
   for (const k of keys) {
     const t = TEMPLATES[k];
@@ -69,7 +70,11 @@ if (cmd === 'list' || !auth) {
       console.log(`✗ ${k}: não criou o conteúdo: ${(e as Error).message}`);
       continue;
     }
-    // aprovação da Meta: no sandbox/trial costuma falhar (sem WhatsApp Business próprio); o conteúdo serve pra testar mesmo assim
+    if (cmd === 'create') {
+      console.log(`✓ ${k}: ${sidCreated} criado (sem pedir aprovação)`);
+      continue;
+    }
+    // revisão da Meta: só faz sentido com o número oficial (WhatsApp Business próprio), nunca no sandbox/trial
     try {
       await api(`${CONTENT}/${sidCreated}/ApprovalRequests/whatsapp`, {
         method: 'POST',
