@@ -16,6 +16,7 @@ for (const k of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_FRO
 const Fastify = (await import('fastify')).default;
 const { all, get, run, now, getRp, getRequest } = await import('../src/db.ts');
 const { loginClient, updateClient } = await import('../src/auth/clients.ts');
+const { recordOptIn } = await import('../src/channel/store.ts');
 const ch = await import('../src/channel/index.ts');
 const { drainOutbox } = await import('../src/channel/outbox.ts');
 const offers = await import('../src/marketplace/offers.ts');
@@ -78,7 +79,7 @@ async function say(from: string, text: string, extra: Partial<{ buttonId: string
   ]);
   await settle();
 }
-const tap = (from: string, key: 'pedido_novo' | 'boas_vindas' | 'pergunta_do_cliente', buttonId: string, buttonText: string, ref?: string) => {
+const tap = (from: string, key: 'pedido_novo' | 'boas_vindas', buttonId: string, buttonText: string, ref?: string) => {
   const row = [...outbox(from)].reverse().find((r) => r.template_key === key && (!ref || r.ref === ref))!;
   return say(from, buttonText, { buttonId, buttonText, repliedToMsgId: row.provider_msg_id! });
 };
@@ -215,6 +216,29 @@ test('oferta completa: o profissional responde direto com o valor (sem Ver detal
   assert.equal(rpFor(e, joaoId).status, 'orcou');
   assert.doesNotMatch(turns.at(-1)!, /Escreve agora a primeira mensagem/);
   assert.match(turns.at(-1)!, /NÃO repete o pedido/);
+});
+
+test('orçamento vai inteiro pro WhatsApp do cliente e ele aprova ali mesmo', async () => {
+  recordOptIn(CLIENTE, 'checkbox no site');
+  const f = newRequest('tomada da cozinha faiscando');
+  offers.findProviders(f);
+  run('UPDATE request_providers SET selected = 0 WHERE request_id = ? AND provider_id = ?', f, marcosId);
+  offers.dispatch(f);
+  await settle();
+  const offer = [...outbox(JOAO)].reverse().find((r) => r.ref === `rp:${rpFor(f, joaoId).id}`)!;
+  await say(JOAO, 'fica 200 com a troca da tomada', { repliedToMsgId: offer.provider_msg_id! });
+  const quote = lastTemplate(CLIENTE, 'cliente_orcamento_chegou')!;
+  const v = JSON.parse(quote.payload_json).vars;
+  assert.equal(v['2'], 'João Instalações');
+  assert.match(v['3'], /200/);
+  assert.match(v['4'], /com a peça/);
+  assert.equal(quote.ref, `quote:${rpFor(f, joaoId).id}`);
+
+  await say(CLIENTE, 'Aprovar', { buttonId: 'aprovar', buttonText: 'Aprovar', repliedToMsgId: quote.provider_msg_id! });
+  assert.equal(getRequest(f)!.status, 'fechado');
+  assert.equal(rpFor(f, joaoId).status, 'fechado');
+  assert.ok(outbox(JOAO).some((r) => r.template_key === 'orcamento_aprovado' && r.ref === `rp:${rpFor(f, joaoId).id}`));
+  assert.match(JSON.parse(outbox(CLIENTE).at(-1)!.payload_json).text, /Fechado! .*João Instalações/);
 });
 
 test('"Agora não" recusa, pausa o prestador e o pedido sem ninguém avisa o cliente', async () => {

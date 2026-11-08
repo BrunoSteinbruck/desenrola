@@ -2,15 +2,12 @@
 
 Coisas combinadas pra fazer depois. A mais nova em cima.
 
-## Textos das mensagens automáticas (templates do WhatsApp)
-Revisar com calma os textos de todos os templates. A proposta ficou na conversa de 08/11/2026:
-- tom gaúcho consistente ("tu", sem misturar com "te cadastraste");
-- sem a frase "tu recebe esta mensagem porque…" (o botão "Parar de receber" já cumpre esse papel);
-- nada de ponto duplo nas variáveis;
-- cliente: "Chegou orçamento pro teu pedido …", "Um profissional tem uma dúvida sobre teu pedido …";
-- profissional: convite, lembrete, resposta do cliente, aprovado (com "Boa notícia!"), encerrado.
-Lembrar: o texto não pode começar nem terminar numa variável; só mandar pra revisão da Meta com o número oficial
-(`npm run wa:templates -- submit`). Pro sandbox, `create` basta.
+## Avaliação pelo WhatsApp
+O template `cliente_avaliacao` (com Ótimo/Razoável/Ruim) existe, mas o pós-serviço ainda só pergunta no site.
+Ligar o envio e tratar os botões.
+
+## Tempo do lembrete
+O lembrete pro profissional sai depois de 3h. Rever: cliente dificilmente espera tanto.
 
 ## Deploy sem perder mensagem
 Cada deploy derruba o site por 30–60 s (disco persistente = sem troca sem parada) e o WhatsApp que chega nesse

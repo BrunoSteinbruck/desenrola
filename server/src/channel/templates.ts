@@ -40,7 +40,7 @@ export const TEMPLATES = {
     vars: ['nome', 'categoria', 'regiao'],
     samples: ['Marcos', 'eletricista', 'Cidade Baixa e Bom Fim'],
     buttons: [
-      { id: 'optin_sim', title: 'Sim, quero receber' },
+      { id: 'optin_sim', title: 'Quero receber' },
       { id: 'optin_nao', title: 'Não quero' },
     ],
     requiresOptIn: false,
@@ -59,7 +59,7 @@ export const TEMPLATES = {
   },
   prestador_lembrete: {
     category: 'utility',
-    body: 'O pedido #{{1}} ({{2}} em {{3}}) ainda está aberto. Se puder atender, é só responder aqui com um valor aproximado.',
+    body: 'O pedido #{{1}} ({{2}} em {{3}}) ainda está sem orçamento. Se puder atender, responde aqui com um valor aproximado e qual data poderia ir.',
     vars: ['pedido', 'categoria', 'bairro'],
     samples: ['128', 'eletricista', 'Cidade Baixa'],
     buttons: [{ id: 'agora_nao', title: 'Agora não' }],
@@ -67,15 +67,14 @@ export const TEMPLATES = {
   },
   pergunta_do_cliente: {
     category: 'utility',
-    body: 'Sobre o pedido #{{1}}, o cliente respondeu: "{{2}}". Toque em Continuar para seguir o orçamento.',
+    body: 'Pedido #{{1}}\nResposta do cliente: "{{2}}"\n\nSe tiver mais alguma dúvida, é só responder aqui.',
     vars: ['pedido', 'resposta'],
     samples: ['128', 'pode vir amanhã depois das 14h'],
-    buttons: [{ id: 'continuar', title: 'Continuar' }],
     requiresOptIn: true,
   },
   orcamento_aprovado: {
     category: 'utility',
-    body: 'Pedido #{{1}}: o cliente aprovou o teu orçamento de {{2}}. Contato: {{3}}, telefone {{4}}, bairro {{5}}. Combina o horário direto com o cliente.',
+    body: 'Boa notícia! O cliente aprovou teu orçamento de {{2}} no pedido #{{1}}.\nContato: {{3}}, {{4}}, {{5}}.\nCombina a data e o horário direto com o cliente.',
     vars: ['pedido', 'valor', 'nome_cliente', 'telefone_cliente', 'bairro'],
     samples: ['128', 'R$ 80,00', 'Bruno', '(51) 99999-8888', 'Cidade Baixa'],
     requiresOptIn: true,
@@ -89,23 +88,28 @@ export const TEMPLATES = {
   },
   cliente_orcamento_chegou: {
     category: 'utility',
-    body: 'Chegou orçamento para o teu pedido #{{1}} ({{2}}). Para ver e comparar, acesse {{3}} e entre com este número.',
-    vars: ['pedido', 'titulo', 'link'],
-    samples: ['128', 'Chuveiro não esquenta', 'https://desenrola.app/p/128'],
+    // o orçamento vem inteiro aqui e dá pra decidir sem abrir o site
+    body: 'Chegou orçamento pro teu pedido "{{1}}":\n{{2}}: {{3}}\n{{4}}\n\nPra fechar, toca em Aprovar: teu nome e celular vão pro profissional combinar o horário. Se quiser perguntar algo, é só responder aqui.',
+    vars: ['titulo', 'profissional', 'valor', 'detalhes'],
+    samples: ['Chuveiro não esquenta', 'Marcos Eletricista', 'R$ 80,00', 'Troca da resistência com a peça · amanhã a partir das 14h'],
+    buttons: [
+      { id: 'aprovar', title: 'Aprovar' },
+      { id: 'recusar', title: 'Recusar' },
+    ],
     requiresOptIn: true,
   },
   cliente_pergunta_prestador: {
     category: 'utility',
-    body: 'Sobre o teu pedido #{{1}} ({{2}}), um profissional perguntou: "{{3}}". Pode responder aqui mesmo.',
-    vars: ['pedido', 'titulo', 'pergunta'],
-    samples: ['128', 'Chuveiro não esquenta', 'o chuveiro é de 220V?'],
+    body: 'Um profissional tem uma dúvida sobre teu pedido "{{1}}":\n"{{2}}"\nPode responder aqui mesmo que eu repasso.',
+    vars: ['titulo', 'pergunta'],
+    samples: ['Chuveiro não esquenta', 'o chuveiro é de 220V?'],
     requiresOptIn: true,
   },
   cliente_avaliacao: {
     category: 'utility',
-    body: 'Como foi o serviço do pedido #{{1}} ({{2}}) com {{3}}? A tua nota ajuda a escolher os melhores profissionais.',
-    vars: ['pedido', 'titulo', 'profissional'],
-    samples: ['128', 'Chuveiro não esquenta', 'Marcos Eletricista'],
+    body: 'Como foi o serviço do {{1}} no teu pedido "{{2}}"? Tua nota ajuda a gente a indicar os melhores profissionais.',
+    vars: ['profissional', 'titulo'],
+    samples: ['Marcos Eletricista', 'Chuveiro não esquenta'],
     buttons: [
       { id: 'nota_5', title: 'Ótimo' },
       { id: 'nota_3', title: 'Razoável' },

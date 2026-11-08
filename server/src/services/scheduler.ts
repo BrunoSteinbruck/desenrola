@@ -1,5 +1,5 @@
 // Scheduler único (60s): lembrete de oferta não vista, expiração de oferta, follow-up do cliente. Idempotente por carimbo.
-import { all, getProvider, getRequest, now, postMessage, run, updateRp, type RpRow } from '../db.ts';
+import { all, get, getProvider, getRequest, now, postMessage, run, updateRp, type RpRow } from '../db.ts';
 import { hourBR } from '../lib/time.ts';
 import { enqueue, OutboxError } from '../channel/index.ts';
 import { checkExhausted, promoteNext } from '../marketplace/offers.ts';
@@ -21,6 +21,8 @@ export function sweepProviders() {
     if (!req || ['fechado', 'avaliado', 'cancelado'].includes(req.status)) continue;
     if (!rp.reminder_sent_at) {
       if (!business || t - new Date(rp.offered_at!).getTime() < 3 * H) continue;
+      // o lembrete diz "ainda está sem orçamento": só vale se ninguém orçou esse pedido
+      if (get('SELECT 1 FROM request_providers WHERE request_id = ? AND quote_value_cents IS NOT NULL LIMIT 1', req.id)) continue;
       const claim = run('UPDATE request_providers SET reminder_sent_at = ? WHERE id = ? AND reminder_sent_at IS NULL', now(), rp.id);
       if (Number(claim.changes) === 0) continue;
       const p = getProvider(rp.provider_id);

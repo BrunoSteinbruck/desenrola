@@ -260,7 +260,7 @@ async function handleTool(rpId: number, b: ToolUseBlock): Promise<{ content: str
       const i = toolInput<{ pergunta: string }>(b);
       postMessage(rp.request_id, 'assistant', `${prov.name} perguntou: ${i.pergunta}`, { kind: 'decision', rpId, pergunta: i.pergunta });
       const req = getRequest(rp.request_id)!;
-      notifyClient(req.id, 'cliente_pergunta_prestador', { pedido: String(req.id), titulo: req.title ?? req.category ?? 'teu pedido', pergunta: i.pergunta }, `ask:${rpId}`);
+      notifyClient(req.id, 'cliente_pergunta_prestador', { titulo: req.title ?? req.category ?? 'teu pedido', pergunta: i.pergunta }, `ask:${rpId}`);
       return { content: 'Pergunta enviada ao cliente; a resposta chega como [cliente]. Diz ao profissional que já perguntou e que avisa assim que o cliente responder.' };
     }
     case 'marcar_sem_interesse': {

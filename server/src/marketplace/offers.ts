@@ -15,6 +15,7 @@ import { clientByPhone, clientOfRequest } from '../auth/clients.ts';
 import { enqueue, OutboxError, type InboundMessage } from '../channel/index.ts';
 import type { MessageContext } from '../channel/index.ts';
 import { windowOpen } from '../channel/store.ts';
+import { formatBR } from '../services/phone.ts';
 import { eligibleProviders, getProviderV2, providerByPhone, type ProviderV2 } from './providers.ts';
 import { suggestFor } from './suggestions.ts';
 
@@ -45,6 +46,12 @@ type NegotiatorHooks = {
 let neg: NegotiatorHooks = { start: () => {}, providerMessage: () => {}, event: () => {}, clientReply: () => {} };
 export function setNegotiatorHooks(h: NegotiatorHooks) {
   neg = h;
+}
+// o relator se registra aqui: aprovar/recusar pelo WhatsApp do cliente
+type ClientHooks = { approve: (requestId: number, rpId: number) => void; reject: (requestId: number, rpId: number) => void };
+let clientActions: ClientHooks | null = null;
+export function setClientHooks(h: ClientHooks) {
+  clientActions = h;
 }
 
 // ---------- 1. matching ----------
@@ -189,6 +196,9 @@ export async function onInbound(msg: InboundMessage, ctx: MessageContext) {
     bus.publish({ type: 'admin.inbox' });
     return; // um humano está na conversa
   }
+  // resposta a uma mensagem de cliente (orçamento ou pergunta) ou botão de decisão: vale mesmo se o número também for de profissional
+  const clientFlow = /^(ask|quote):/.test(ctx.repliedTo?.ref ?? '') || msg.buttonId === 'aprovar' || msg.buttonId === 'recusar';
+  if (clientFlow && clientByPhone(msg.from)) return onClientMessage(msg, ctx);
   if (!p) {
     if (clientByPhone(msg.from)) return onClientMessage(msg, ctx);
     createHandoff(msg.from, null, null, 'Mensagem de um número que não é prestador cadastrado');
@@ -229,18 +239,40 @@ export const siteUrl = (path = '') => `${(process.env.PUBLIC_URL || 'http://loca
 function onClientMessage(msg: InboundMessage, ctx: MessageContext) {
   const c = clientByPhone(msg.from)!;
   const text = msg.text.trim();
-  const viaRef = ctx.repliedTo?.ref?.match(/^ask:(\d+)$/);
+  const REF = /^(?:ask|quote):(\d+)$/;
+  const viaRef = ctx.repliedTo?.ref?.match(REF);
   const recent = get<{ ref: string }>(
-    "SELECT ref FROM wa_outbox WHERE to_phone = ? AND ref LIKE 'ask:%' AND created_at >= ? ORDER BY id DESC LIMIT 1",
+    "SELECT ref FROM wa_outbox WHERE to_phone = ? AND (ref LIKE 'ask:%' OR ref LIKE 'quote:%') AND created_at >= ? ORDER BY id DESC LIMIT 1",
     msg.from, new Date(Date.now() - 24 * 3600_000).toISOString(),
   );
-  const rpId = Number((viaRef ?? recent?.ref.match(/^ask:(\d+)$/))?.[1] ?? 0);
+  const rpId = Number((viaRef ?? recent?.ref.match(REF))?.[1] ?? 0);
   const rp = rpId ? getRp(rpId) : undefined;
   const req = rp ? getRequest(rp.request_id) : undefined;
-  if (text && rp && req && req.client_id === c.id && OPEN_OFFER.includes(rp.status as (typeof OPEN_OFFER)[number])) {
-    postMessage(req.id, 'user', text);
-    neg.clientReply(rp.id, text);
-    reply(msg.from, 'Mandei tua resposta pro profissional. Os orçamentos aparecem no site.');
+  const mine = !!rp && !!req && req.client_id === c.id;
+
+  if (msg.buttonId === 'aprovar' || msg.buttonId === 'recusar') {
+    if (!mine || !clientActions) {
+      reply(msg.from, 'Não achei esse orçamento. Confere no site.');
+      return;
+    }
+    try {
+      if (msg.buttonId === 'aprovar') {
+        clientActions.approve(req!.id, rp!.id);
+        const prov = getProviderV2(rp!.provider_id);
+        reply(msg.from, `Fechado! Mandei teu nome e celular pro ${prov?.name ?? 'profissional'}. O telefone é ${prov?.phone_e164 ? formatBR(prov.phone_e164) : '-'}. Combinem a data e o horário direto.`);
+      } else {
+        clientActions.reject(req!.id, rp!.id);
+        reply(msg.from, 'Beleza, avisei o profissional. Se chegar outro orçamento, te mando aqui.');
+      }
+    } catch (e) {
+      reply(msg.from, (e as Error).message);
+    }
+    return;
+  }
+  if (text && mine && OPEN_OFFER.includes(rp!.status as (typeof OPEN_OFFER)[number])) {
+    postMessage(req!.id, 'user', text);
+    neg.clientReply(rp!.id, text);
+    reply(msg.from, 'Mandei tua mensagem pro profissional. Quando ele responder, te aviso aqui.');
     return;
   }
   reply(msg.from, `Oi! Pra ver teus pedidos e os orçamentos, entra em ${siteUrl()} com este número.`);

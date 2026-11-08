@@ -7,7 +7,7 @@ import { clientOfRequest } from '../auth/clients.ts';
 import { reais } from '../lib/time.ts';
 import { formatBR } from '../services/phone.ts';
 import { enqueue, OutboxError } from '../channel/index.ts';
-import { checkExhausted, notifyClient, OPEN_OFFER, promoteNext, siteUrl } from '../marketplace/offers.ts';
+import { checkExhausted, notifyClient, OPEN_OFFER, promoteNext, setClientHooks } from '../marketplace/offers.ts';
 import { hasClaude, runTurn, textOf, MODELS } from './claude.ts';
 import { pushEvent } from './negociador.ts';
 
@@ -18,11 +18,18 @@ export function onQuote(rpId: number) {
   if (req.status === 'contatando') setRequestStatus(req.id, 'orcamentos');
   postMessage(req.id, 'assistant', `${prov.name} mandou orçamento: ${reais(rp.quote_value_cents)}.`, { kind: 'quote', rpId });
   scheduleComparison(req.id);
-  // aviso no WhatsApp do cliente: no máximo um a cada 30 min por pedido (vários orçamentos seguidos = 1 aviso)
-  const recent = get('SELECT 1 FROM wa_outbox WHERE ref = ? AND created_at >= ?', `req:${req.id}`, new Date(Date.now() - 30 * 60_000).toISOString());
-  if (!recent) {
-    notifyClient(req.id, 'cliente_orcamento_chegou', { pedido: String(req.id), titulo: req.title ?? req.category ?? 'teu pedido', link: siteUrl(`/#/p/${req.id}`) });
-  }
+  // o orçamento vai inteiro pro WhatsApp do cliente, com Aprovar e Recusar (não precisa abrir o site)
+  notifyClient(
+    req.id,
+    'cliente_orcamento_chegou',
+    {
+      titulo: req.title ?? req.category ?? 'teu pedido',
+      profissional: prov.name,
+      valor: reais(rp.quote_value_cents),
+      detalhes: [rp.quote_conditions, rp.quote_availability].filter(Boolean).join(' · ') || 'detalhes a combinar',
+    },
+    `quote:${rpId}`,
+  );
   // a negociação ativa desse prestador terminou: se ele tem outro pedido na fila, começa
   promoteNext(rp.provider_id);
 }
@@ -173,3 +180,6 @@ export function cancelRequest(requestId: number) {
 /** usado pelo admin/testes: quantos pedidos abertos um prestador tem */
 export const openCountFor = (providerId: number) =>
   get<{ n: number }>(`SELECT COUNT(*) AS n FROM request_providers WHERE provider_id = ? AND status IN (${OPEN_OFFER.map((s) => `'${s}'`).join(',')})`, providerId)!.n;
+
+// o cliente também decide pelo WhatsApp (botões do template cliente_orcamento_chegou)
+setClientHooks({ approve, reject });
