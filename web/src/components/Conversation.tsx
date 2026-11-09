@@ -35,15 +35,8 @@ export function Conversation({
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages.length, streaming?.content, detail.providers, detail.payment?.status]);
 
-  const status = useMemo(() => {
-    const ps = detail.providers.filter((p) => p.selected && p.status !== 'sugerido' && p.status !== 'excluido');
-    if (request.status === 'contatando' || request.status === 'orcamentos') {
-      const viu = ps.filter((p) => !['contatado', 'sem_resposta'].includes(p.status)).length;
-      const orcou = ps.filter((p) => p.quote_value_cents != null).length;
-      return `${ps.length} ${ps.length === 1 ? 'avisado' : 'avisados'} · ${viu} ${viu === 1 ? 'viu' : 'viram'} · ${orcou} ${orcou === 1 ? 'orçamento' : 'orçamentos'}`;
-    }
-    return STATUS_LABEL[request.status] ?? '';
-  }, [detail.providers, request.status]);
+  // nos pedidos em andamento não mostra contador: os avisos e orçamentos já aparecem na conversa
+  const status = request.status === 'contatando' || request.status === 'orcamentos' ? '' : (STATUS_LABEL[request.status] ?? '');
 
   const send = async (text: string) => {
     try {

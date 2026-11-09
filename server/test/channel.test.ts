@@ -33,7 +33,8 @@ test('templates seguem as regras da Meta', () => {
     const body = t.body.trim();
     if (t.category !== 'authentication') {
       assert.ok(!/^\{\{/.test(body), `${key} começa com variável`);
-      assert.ok(!/\}\}[.!?"]?$/.test(body), `${key} termina com variável`);
+      // os sessionOnly não vão pra aprovação da Meta
+      if (!(t as { sessionOnly?: boolean }).sessionOnly) assert.ok(!/\}\}[.!?"]?$/.test(body), `${key} termina com variável`);
     }
     const n = [...body.matchAll(/\{\{(\d+)\}\}/g)].map((m) => Number(m[1]));
     assert.deepEqual([...new Set(n)].sort((a, b) => a - b), t.vars.map((_, i) => i + 1), `${key}: variáveis fora de ordem`);

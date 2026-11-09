@@ -24,6 +24,8 @@ export type TemplateDef = {
    * ou que a pessoa acabou de solicitar (código de login).
    */
   requiresOptIn: boolean;
+  /** só sai com a conversa aberta (24h): tem variável nos botões, então nunca vai pra aprovação da Meta */
+  sessionOnly?: boolean;
 };
 
 export const TEMPLATES = {
@@ -47,15 +49,29 @@ export const TEMPLATES = {
   },
   pedido_novo: {
     category: 'utility',
-    // a oferta já leva tudo: o profissional responde direto com o valor (sem "Ver detalhes")
-    body: 'Pedido #{{1}}: {{2}} em {{3}}\nRelato do cliente: "{{4}}"\n\nSe puder atender, responde aqui com um valor aproximado e qual data poderia ir.',
+    // "Posso atender" abre a conversa: o agente manda tudo que o cliente contou e pede valor e data.
+    // Quem preferir pode responder direto com o valor, sem tocar no botão.
+    body: 'Pedido #{{1}}: {{2}} em {{3}}\nRelato do cliente: "{{4}}"\n\nSe puder atender, toca em Posso atender.',
     vars: ['pedido', 'categoria', 'bairro', 'relato'],
     samples: ['128', 'eletricista', 'Cidade Baixa', 'o disjuntor ta desarmando o tempo todo'],
     buttons: [
+      { id: 'posso_atender', title: 'Posso atender' },
       { id: 'agora_nao', title: 'Agora não' },
       { id: 'parar', title: 'Parar de receber' },
     ],
     requiresOptIn: true,
+  },
+  qual_pedido: {
+    category: 'utility',
+    body: 'Essa mensagem é sobre qual pedido?\n#{{1}}: {{2}}\n#{{3}}: {{4}}',
+    vars: ['pedido_a', 'relato_a', 'pedido_b', 'relato_b'],
+    samples: ['3', 'chuveiro sem sinal de vida', '2', 'disjuntor desarmando'],
+    buttons: [
+      { id: 'pedido_{{1}}', title: 'Pedido #{{1}}' },
+      { id: 'pedido_{{3}}', title: 'Pedido #{{3}}' },
+    ],
+    requiresOptIn: true,
+    sessionOnly: true,
   },
   prestador_lembrete: {
     category: 'utility',

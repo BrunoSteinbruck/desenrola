@@ -19,6 +19,7 @@ Como escrever:
 - Poucas mensagens e densas: em geral UMA mensagem por resposta (no máximo duas, separadas por uma linha "---"). Nada de vários balões curtos.
 - Sem markdown, sem listas longas, sem emoji.
 - Fala do cliente na terceira pessoa ("o cliente"). Tu não é o cliente.
+- Sempre cita o número do pedido ("Pedido #12"): o profissional pode ter mais de um pedido aberto neste mesmo número.
 - Se perguntarem se é robô: diz que sim, é o assistente automático do Desenrola, e que se ele preferir uma pessoa da equipe assume.
 
 O que nunca fazer:
@@ -30,7 +31,7 @@ O que nunca fazer:
 
 Mensagens que tu recebe: [prestador] é o profissional no WhatsApp. [cliente] é o cliente respondendo pelo site (o profissional não vê). [evento] é aviso do sistema.
 
-Primeira mensagem (só quando ele ainda não viu o pedido, por exemplo ao sair da fila; quando ele já respondeu ao aviso, segue a conversa a partir da resposta dele): apresenta o pedido numa mensagem só: número do pedido, serviço e bairro; o que o cliente contou, com as palavras dele; o diagnóstico provável; e pede um valor aproximado (pode ser faixa ou só a visita), o que está incluso e quando ele poderia atender. Ex.: "Pedido #12, eletricista na Cidade Baixa. O cliente contou: 'o chuveiro parou de esquentar, só sai água fria'. Provavelmente é a resistência. Consegue me passar um valor aproximado, o que inclui e quando poderia ir? Se precisar de alguma informação, é só perguntar."
+Primeira mensagem (quando ele tocou em "Posso atender"; quando ele respondeu direto ao aviso, segue a conversa a partir da resposta dele): passa numa mensagem só tudo o que o Desenrola apurou com o cliente: número do pedido, serviço e bairro; o que o cliente contou, com as palavras dele, inclusive as respostas às perguntas que o Desenrola fez; o diagnóstico provável; e pede um valor aproximado (pode ser faixa ou só a visita) e a data em que poderia ir. Ex.: "Pedido #12, eletricista na Cidade Baixa. O cliente contou: 'o chuveiro parou de esquentar, só sai água fria'. Perguntei se o disjuntor estava desarmado e ele disse que está normal. Provavelmente é a resistência. Consegue me passar um valor aproximado e a data em que poderia ir? Se precisar de mais alguma informação, é só perguntar."
 
 Ferramentas:
 - registrar_orcamento: quando o profissional passar um valor (mesmo que seja só a visita ou uma faixa). Registra de novo se mudar.
@@ -127,7 +128,15 @@ export function pushEvent(rpId: number, text: string) {
 function contextFor(rp: RpRow, providerText: string | null): string {
   const req = getRequest(rp.request_id)!;
   const prov = getProviderV2(rp.provider_id)!;
-  const userMsgs = all<{ content: string }>("SELECT content FROM messages WHERE request_id = ? AND role = 'user' ORDER BY id", rp.request_id).map((m) => m.content);
+  // o que o cliente escreveu e o que o diagnóstico perguntou (as mensagens do Desenrola com cartão são avisos, não perguntas)
+  const talk = all<{ role: string; content: string; card_json: string | null }>(
+    "SELECT role, content, card_json FROM messages WHERE request_id = ? AND role IN ('user','assistant') ORDER BY id",
+    rp.request_id,
+  );
+  const cut = talk.findIndex((m) => m.card_json?.includes('"diagnostico"'));
+  const conversation = talk
+    .filter((m, i) => m.role === 'user' || (!m.card_json && (cut < 0 || i < cut)))
+    .map((m) => (m.role === 'user' ? `> Cliente: ${m.content}` : `> Desenrola perguntou: ${m.content}`));
   return (
     `Pedido #${req.id} (dados do sistema, o profissional não vê este bloco):\n` +
     `- Profissional: ${prov.name}\n` +
@@ -135,7 +144,7 @@ function contextFor(rp: RpRow, providerText: string | null): string {
     `- Local: bairro ${req.neighborhood ?? '-'}, ${req.city ?? ''}\n` +
     `- Diagnóstico: ${req.summary ?? '-'}\n` +
     `- Agora: ${nowBR()}\n\n` +
-    `O que o cliente escreveu no site:\n${userMsgs.map((m) => `> ${m}`).join('\n')}\n\n` +
+    `Conversa do cliente com o Desenrola no site:\n${conversation.join('\n')}\n\n` +
     (providerText
       ? `O profissional recebeu o aviso do pedido, que já tinha o relato do cliente e a pergunta de valor e disponibilidade, e respondeu:\n` +
         `[prestador ${hhmmBR()}]: ${providerText}\n` +
@@ -153,7 +162,7 @@ export function startNegotiation(rpId: number, providerText: string | null): Pro
     if (history.length) {
       // já tinha começado (ex.: voltou da fila): só segue a conversa
       if (providerText) addPending(rpId, { from: 'prestador', text: providerText, at: now() });
-      addPending(rpId, { from: 'evento', text: 'O profissional voltou a este pedido.', at: now() });
+      addPending(rpId, { from: 'evento', text: 'A conversa com o profissional voltou a este pedido. Retoma citando o número do pedido.', at: now() });
       schedule(rpId, 300);
       return;
     }
@@ -169,7 +178,7 @@ export function processPending(rpId: number): Promise<void> {
     if (!rp) return;
     const pending = getPending(rp);
     if (!pending.length) return;
-    if (rp.status === 'pausado') return; // um humano está na conversa
+    if (rp.status === 'pausado' || rp.status === 'na_fila') return; // humano na conversa, ou espera a vez: o pendente fica guardado
     if (!TALKING.includes(rp.status)) {
       updateRp(rpId, { pending_inbound_json: '[]' });
       return;

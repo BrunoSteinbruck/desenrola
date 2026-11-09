@@ -70,7 +70,7 @@ if (cmd === 'list' || !auth) {
       console.log(`✗ ${k}: não criou o conteúdo: ${(e as Error).message}`);
       continue;
     }
-    if (cmd === 'create') {
+    if (cmd === 'create' || (t as TemplateDef).sessionOnly) {
       console.log(`✓ ${k}: ${sidCreated} criado (sem pedir aprovação)`);
       continue;
     }

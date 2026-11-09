@@ -3,8 +3,8 @@
 //
 // Estados de request_providers (mesma tabela da V1, sentido novo):
 //   sugerido → (dispatch) contatado [template pedido_novo enviado]
-//   contatado → respondeu [tocou em "Ver detalhes": negociação ativa] | na_fila [aceitou, mas está em outra negociação]
-//             | recusou ["Agora não" / não atende] | sem_resposta [não abriu]
+//   contatado → respondeu [tocou em "Posso atender" ou respondeu: negociação ativa] | recusou | sem_resposta
+//   respondeu ⇄ na_fila [uma negociação ativa por vez: passou pra outro pedido, este espera e volta sozinho]
 //   respondeu → orcou → fechado [cliente aprovou: contatos trocados] | recusado_pelo_usuario | dispensado
 //   pausado = conversa com um humano do Desenrola (handoff)
 import { bus } from '../events.ts';
@@ -167,13 +167,137 @@ export function dispatch(requestId: number) {
 const rpOfProvider = (providerId: number, statuses: readonly string[], order = 'last_activity_at DESC') =>
   get<RpRow>(`SELECT * FROM request_providers WHERE provider_id = ? AND status IN (${inList(statuses)}) ORDER BY ${order}, id DESC LIMIT 1`, providerId);
 
-/** Qual pedido essa mensagem do prestador é sobre. */
-export function routeMessage(p: ProviderV2, ctx: MessageContext): RpRow | null {
+function citedRp(p: ProviderV2, ctx: MessageContext) {
   const m = ctx.repliedTo?.ref?.match(/^rp:(\d+)$/);
-  if (m) {
-    const rp = getRp(Number(m[1]));
-    if (rp && rp.provider_id === p.id) return rp;
+  const rp = m ? getRp(Number(m[1])) : undefined;
+  return rp && rp.provider_id === p.id ? rp : null;
+}
+
+/** O pedido aberto da última mensagem que mandamos pra ele. */
+const latestRp = (p: ProviderV2) =>
+  get<RpRow>(
+    `SELECT rp.* FROM wa_outbox o JOIN request_providers rp ON o.ref = 'rp:' || rp.id
+     WHERE o.to_phone = ? AND rp.provider_id = ? AND o.state NOT IN ('blocked','failed') AND rp.status IN (${inList(OPEN_OFFER)})
+     ORDER BY o.id DESC LIMIT 1`,
+    p.phone_e164, p.id,
+  );
+
+// ---------- "é sobre qual pedido?" ----------
+// Chegou oferta nova depois da última mensagem de uma conversa em andamento e ele respondeu sem citar nem tocar em
+// botão: não dá pra saber do que ele fala, e um valor no pedido errado chega no cliente errado. Guarda e pergunta.
+type Held = { texts: string[]; options: number[]; askedAt: string };
+const HELD_MS = 24 * 3600_000;
+const REASK_MS = 2 * 60_000;
+const WAITING_OFFER = ['contatado', 'sem_resposta'];
+
+function getHeld(providerId: number): Held | null {
+  const raw = get<{ held_inbound_json: string | null }>('SELECT held_inbound_json FROM providers WHERE id = ?', providerId)?.held_inbound_json;
+  if (!raw) return null;
+  const held = JSON.parse(raw) as Held;
+  return Date.now() - new Date(held.askedAt).getTime() < HELD_MS ? held : null;
+}
+const setHeld = (providerId: number, held: Held | null) =>
+  run('UPDATE providers SET held_inbound_json = ? WHERE id = ?', held ? JSON.stringify(held) : null, providerId);
+
+/**
+ * Os dois pedidos em dúvida, ou null se não há dúvida: a oferta nova contra a conversa em andamento, ou uma oferta
+ * ainda sem resposta contra o pedido que ele acabou de orçar (um valor ali sobrescreveria o orçamento já enviado).
+ */
+function ambiguousOptions(p: ProviderV2): number[] | null {
+  const latest = latestRp(p);
+  if (!latest) return null;
+  if (WAITING_OFFER.includes(latest.status)) {
+    const active = rpOfProvider(p.id, ['respondeu']);
+    return active && active.id !== latest.id ? [latest.id, active.id] : null;
   }
+  if (latest.status !== 'orcou') return null;
+  const offer = rpOfProvider(p.id, ['contatado'], 'offered_at DESC');
+  return offer ? [offer.id, latest.id] : null;
+}
+
+function askWhichRequest(p: ProviderV2, options: number[]) {
+  const [a, b] = options.map((id) => getRp(id)!);
+  const story = (rp: RpRow) => offerStory(rp.request_id, getRequest(rp.request_id)?.title ?? null).slice(0, 60);
+  try {
+    enqueue({
+      to: p.phone_e164!,
+      template: 'qual_pedido',
+      vars: { pedido_a: String(a.request_id), relato_a: story(a), pedido_b: String(b.request_id), relato_b: story(b) },
+      ref: `qual:${p.id}`,
+    });
+  } catch (e) {
+    if (!(e instanceof OutboxError)) throw e;
+    reply(p.phone_e164!, `Essa mensagem é sobre qual pedido? Responde ${a.request_id} ou ${b.request_id}.`);
+  }
+}
+
+/** Qual das opções ele escolheu: botão "Pedido #3", citando a mensagem do pedido, ou escrevendo só o número. */
+function chosenOption(p: ProviderV2, held: Held, msg: InboundMessage, ctx: MessageContext): number | null {
+  const byNumber = (n: string | undefined) => (n ? held.options.find((id) => getRp(id)?.request_id === Number(n)) ?? null : null);
+  if (msg.buttonId) {
+    if (msg.buttonId === 'posso_atender') {
+      const cited = citedRp(p, ctx);
+      return cited && held.options.includes(cited.id) ? cited.id : null;
+    }
+    return byNumber(msg.buttonId.match(/^pedido_(\d+)$/)?.[1]);
+  }
+  const cited = citedRp(p, ctx);
+  if (cited && held.options.includes(cited.id)) return cited.id;
+  return byNumber(msg.text.trim().match(/^(?:pedido\s*)?#?\s*(\d+)$/i)?.[1]);
+}
+
+/** Entrega ao pedido certo o que ele tinha escrito. */
+function deliverHeld(p: ProviderV2, rpId: number, texts: string[]) {
+  const rp = getRp(rpId)!;
+  updateRp(rp.id, { last_inbound_at: now(), last_activity_at: now() });
+  if (['contatado', 'sem_resposta', 'na_fila'].includes(rp.status)) return accept(p, rp, texts.join('\n') || null);
+  for (const t of texts) neg.providerMessage(rp.id, t);
+}
+
+/** true = a mensagem já foi tratada aqui. */
+function handleAmbiguity(p: ProviderV2, msg: InboundMessage, ctx: MessageContext): boolean {
+  const held = getHeld(p.id);
+  const said = msg.text.trim() || (msg.media.length ? '[mandou uma imagem/arquivo, que tu não consegue ver]' : '');
+  if (held) {
+    const chosen = chosenOption(p, held, msg, ctx);
+    if (chosen) {
+      setHeld(p.id, null);
+      // o número ou o toque só escolhe; se citou a mensagem do pedido escrevendo algo, esse texto também vale
+      const extra = !msg.buttonId && citedRp(p, ctx) ? [said] : [];
+      deliverHeld(p, chosen, [...held.texts, ...extra]);
+      return true;
+    }
+    const open = held.options.filter((id) => OPEN_OFFER.includes(getRp(id)?.status as (typeof OPEN_OFFER)[number]));
+    if (open.length < 2) {
+      // um dos pedidos acabou enquanto esperava: a dúvida sumiu
+      setHeld(p.id, null);
+      if (open.length === 1) deliverHeld(p, open[0], held.texts);
+    }
+  }
+  if (msg.buttonId || citedRp(p, ctx) || !said) return false;
+  const current = getHeld(p.id);
+  if (current) {
+    const askAgain = Date.now() - new Date(current.askedAt).getTime() > REASK_MS;
+    setHeld(p.id, { ...current, texts: [...current.texts, said], askedAt: askAgain ? now() : current.askedAt });
+    if (askAgain) askWhichRequest(p, current.options);
+    return true;
+  }
+  const options = ambiguousOptions(p);
+  if (!options) return false;
+  setHeld(p.id, { texts: [said], options, askedAt: now() });
+  askWhichRequest(p, options);
+  return true;
+}
+
+/**
+ * Qual pedido essa mensagem do prestador é sobre: o que ele citou; senão, o da última mensagem que mandamos
+ * pra ele (a pessoa responde ao que acabou de ler, ex.: uma oferta nova chegou durante outra conversa).
+ */
+export function routeMessage(p: ProviderV2, ctx: MessageContext): RpRow | null {
+  const cited = citedRp(p, ctx);
+  if (cited) return cited;
+  const latest = latestRp(p);
+  if (latest) return latest;
   return (
     // a negociação ativa vem antes de um pedido que já orçou e está esperando o cliente
     rpOfProvider(p.id, ['respondeu', 'pausado']) ??
@@ -205,6 +329,7 @@ export async function onInbound(msg: InboundMessage, ctx: MessageContext) {
     return;
   }
   const text = msg.text.trim();
+  if (handleAmbiguity(p, msg, ctx)) return;
   const rp = routeMessage(p, ctx);
   if (!rp) {
     reply(msg.from, 'Oi! No momento não tenho nenhum pedido aberto pra ti. Assim que aparecer um na tua região, te aviso por aqui.');
@@ -218,7 +343,7 @@ export async function onInbound(msg: InboundMessage, ctx: MessageContext) {
     return;
   }
   if (rp.status === 'contatado' || rp.status === 'sem_resposta' || rp.status === 'na_fila') {
-    // "Ver detalhes", "Continuar" ou texto livre em cima da oferta: quer orçar
+    // "Posso atender" ou texto livre em cima da oferta: quer orçar
     return accept(p, rp, msg.buttonId ? null : text || null);
   }
   if (msg.media.length && !text) {
@@ -308,7 +433,7 @@ function snooze(p: ProviderV2, rp: RpRow) {
   checkExhausted(rp.request_id);
 }
 
-/** O prestador quer orçar. Se já está negociando outro pedido, entra na fila. */
+/** O prestador quer orçar este pedido. Se estava negociando outro, aquele espera na fila e volta quando este terminar. */
 function accept(p: ProviderV2, rp: RpRow, firstText: string | null) {
   const req = getRequest(rp.request_id)!;
   if (['fechado', 'avaliado', 'cancelado'].includes(req.status)) {
@@ -316,17 +441,14 @@ function accept(p: ProviderV2, rp: RpRow, firstText: string | null) {
     reply(p.phone_e164!, `O pedido #${req.id} já foi resolvido. Obrigado! Quando aparecer outro na tua região, te aviso.`);
     return;
   }
-  const busy = get<RpRow>("SELECT * FROM request_providers WHERE provider_id = ? AND status = 'respondeu' AND id != ? LIMIT 1", p.id, rp.id);
-  if (!rp.viewed_at) updateRp(rp.id, { viewed_at: now() });
-  if (busy) {
-    if (rp.status !== 'na_fila') {
-      updateRp(rp.id, { status: 'na_fila', queued_at: now() });
-      reply(p.phone_e164!, `Anotado o pedido #${req.id}! Assim que terminarmos o #${busy.request_id}, te passo os detalhes dele.`);
-    }
-    return;
+  for (const other of all<RpRow>("SELECT * FROM request_providers WHERE provider_id = ? AND status = 'respondeu' AND id != ?", p.id, rp.id)) {
+    updateRp(other.id, { status: 'na_fila', queued_at: now() });
+  }
+  if (!rp.viewed_at) {
+    updateRp(rp.id, { viewed_at: now() });
+    postMessage(req.id, 'system_event', `${p.name} viu o pedido e está conversando comigo.`);
   }
   updateRp(rp.id, { status: 'respondeu', last_activity_at: now() });
-  postMessage(req.id, 'system_event', `${p.name} viu o pedido e está conversando comigo.`);
   neg.start(rp.id, firstText);
 }
 

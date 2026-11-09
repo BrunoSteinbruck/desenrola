@@ -1,5 +1,5 @@
 // V2 ponta a ponta com o canal stub e o modelo trocado por um roteiro (sem gastar API, sem mandar nada):
-// admin cadastra → boas_vindas → "Sim" → pedido → matching → pedido_novo → "Ver detalhes" → negociação →
+// admin cadastra → boas_vindas → "Sim" → pedido → matching → pedido_novo → "Posso atender" → negociação →
 // orçamento → aprovação (contatos) → os outros recebem pedido_encerrado. E: fila de um por vez, "Agora não",
 // passagem pra humano, e lead nunca recebe nada.
 import { test } from 'node:test';
@@ -160,7 +160,7 @@ test('pedido: matching → pedido_novo pros dois → Marcos vê e negocia → or
   assert.ok(!JSON.stringify(offer).includes('Bruno'), 'oferta sem dado pessoal');
   assert.equal(getRequest(req1)!.status, 'contatando');
 
-  await tap(MARCOS, 'pedido_novo', 'ver', 'Ver detalhes');
+  await tap(MARCOS, 'pedido_novo', 'posso_atender', 'Posso atender');
   assert.equal(rpFor(req1, marcosId).status, 'respondeu');
   assert.match(turns.at(-1)!, /Escreve agora a primeira mensagem/);
   assert.match(turns.at(-1)!, /só sai água fria/);
@@ -183,7 +183,7 @@ test('pedido: matching → pedido_novo pros dois → Marcos vê e negocia → or
   assert.match(JSON.parse(lastTemplate(JOAO, 'pedido_encerrado')!.payload_json).vars['3'], /escolheu outro/);
 });
 
-test('um pedido por vez: o segundo espera na fila e começa quando o primeiro orça', async () => {
+test('um pedido por vez: passar pro pedido novo deixa o anterior na fila, e ele volta quando o novo orça', async () => {
   const a = newRequest('tomada da sala faiscando');
   const b = newRequest('disjuntor caindo toda hora');
   for (const id of [a, b]) {
@@ -192,19 +192,103 @@ test('um pedido por vez: o segundo espera na fila e começa quando o primeiro or
     offers.dispatch(id);
   }
   await settle();
-  await tap(MARCOS, 'pedido_novo', 'ver', 'Ver detalhes', `rp:${rpFor(a, marcosId).id}`);
-  await tap(MARCOS, 'pedido_novo', 'ver', 'Ver detalhes', `rp:${rpFor(b, marcosId).id}`);
-  assert.equal(rpFor(a, marcosId).status, 'respondeu');
-  assert.equal(rpFor(b, marcosId).status, 'na_fila');
-  assert.match(JSON.parse(outbox(MARCOS).at(-1)!.payload_json).text, new RegExp(`#${b}.*#${a}|#${a}`));
+  await tap(MARCOS, 'pedido_novo', 'posso_atender', 'Posso atender', `rp:${rpFor(a, marcosId).id}`);
+  await tap(MARCOS, 'pedido_novo', 'posso_atender', 'Posso atender', `rp:${rpFor(b, marcosId).id}`);
+  assert.equal(rpFor(a, marcosId).status, 'na_fila');
+  assert.equal(rpFor(b, marcosId).status, 'respondeu');
 
-  await say(MARCOS, 'essa fica 120'); // texto livre vai pra negociação ativa (a)
+  await say(MARCOS, 'essa fica 120'); // texto livre vai pro pedido da última mensagem (b)
+  assert.equal(rpFor(b, marcosId).status, 'orcou');
+  assert.equal(getRp(rpFor(b, marcosId).id)!.quote_value_cents, 12000);
+  assert.equal(rpFor(a, marcosId).status, 'respondeu', 'a sai da fila sozinho');
+  await new Promise((r) => setTimeout(r, 350)); // a retomada espera um pouco antes de falar
+  await settle();
+  assert.match(turns.at(-1)!, /voltou a este pedido/);
+
+  // termina o a pra não sobrar negociação aberta nos próximos testes
+  await say(MARCOS, 'fica 70');
   assert.equal(rpFor(a, marcosId).status, 'orcou');
-  assert.equal(rpFor(b, marcosId).status, 'respondeu', 'b sai da fila sozinho');
-  assert.match(turns.at(-1)!, /primeira mensagem/);
 });
 
-test('oferta completa: o profissional responde direto com o valor (sem Ver detalhes) e vira orçamento', async () => {
+test('oferta nova durante outra conversa: resposta sem citar fica guardada, pergunta qual pedido e vai pro escolhido', async () => {
+  const old = newRequest('interruptor do quarto solto');
+  offers.findProviders(old);
+  run('UPDATE request_providers SET selected = 0 WHERE request_id = ? AND provider_id = ?', old, joaoId);
+  offers.dispatch(old);
+  await settle();
+  await tap(MARCOS, 'pedido_novo', 'posso_atender', 'Posso atender', `rp:${rpFor(old, marcosId).id}`);
+  assert.equal(rpFor(old, marcosId).status, 'respondeu');
+
+  const fresh = newRequest('chuveiro elétrico sem sinal de vida');
+  offers.findProviders(fresh);
+  run('UPDATE request_providers SET selected = 0 WHERE request_id = ? AND provider_id = ?', fresh, joaoId);
+  offers.dispatch(fresh);
+  await settle();
+
+  await say(MARCOS, 'posso sim, fica 80 trocando a resistência');
+  assert.equal(getRp(rpFor(fresh, marcosId).id)!.quote_value_cents, null, 'nenhum valor sai antes de saber o pedido');
+  assert.equal(getRp(rpFor(old, marcosId).id)!.quote_value_cents, null);
+  const ask = lastTemplate(MARCOS, 'qual_pedido')!;
+  const vars = JSON.parse(ask.payload_json).vars;
+  assert.deepEqual([vars['1'], vars['3']], [String(fresh), String(old)]);
+  assert.match(vars['2'], /chuveiro/);
+
+  await say(MARCOS, `Pedido #${fresh}`, { buttonId: `pedido_${fresh}`, buttonText: `Pedido #${fresh}`, repliedToMsgId: ask.provider_msg_id! });
+  assert.equal(getRp(rpFor(fresh, marcosId).id)!.quote_value_cents, 8000);
+  assert.equal(getRp(rpFor(old, marcosId).id)!.quote_value_cents, null);
+  assert.equal(rpFor(old, marcosId).status, 'respondeu', 'o antigo volta depois do orçamento');
+  await new Promise((r) => setTimeout(r, 350));
+  await settle();
+  await say(MARCOS, 'fica 60');
+  assert.equal(getRp(rpFor(old, marcosId).id)!.quote_value_cents, 6000);
+});
+
+test('qual pedido: dá pra responder só com o número, e o outro pedido segue intacto', async () => {
+  const old = newRequest('tomada do quarto solta');
+  const fresh = newRequest('lâmpada da sala queimando');
+  offers.findProviders(old);
+  run('UPDATE request_providers SET selected = 0 WHERE request_id = ? AND provider_id = ?', old, joaoId);
+  offers.dispatch(old);
+  await settle();
+  await tap(MARCOS, 'pedido_novo', 'posso_atender', 'Posso atender', `rp:${rpFor(old, marcosId).id}`);
+  offers.findProviders(fresh);
+  run('UPDATE request_providers SET selected = 0 WHERE request_id = ? AND provider_id = ?', fresh, joaoId);
+  offers.dispatch(fresh);
+  await settle();
+
+  await say(MARCOS, 'fica 110');
+  await say(MARCOS, String(old));
+  assert.equal(getRp(rpFor(old, marcosId).id)!.quote_value_cents, 11000);
+  assert.equal(rpFor(fresh, marcosId).status, 'contatado');
+  // acabou de orçar e tem oferta sem resposta: outro valor não pode sobrescrever o orçamento já enviado
+  await say(MARCOS, 'fica 45');
+  assert.equal(getRp(rpFor(old, marcosId).id)!.quote_value_cents, 11000);
+  await say(MARCOS, String(fresh));
+  assert.equal(getRp(rpFor(fresh, marcosId).id)!.quote_value_cents, 4500);
+});
+
+test('"Posso atender" manda ao agente o que o cliente contou e o que o diagnóstico perguntou', async () => {
+  const q = newRequest('meu chuveiro parou');
+  const ts = now();
+  run("INSERT INTO messages (request_id, role, content, created_at) VALUES (?, 'assistant', 'O disjuntor desarmou?', ?)", q, ts);
+  run("INSERT INTO messages (request_id, role, content, created_at) VALUES (?, 'user', 'não, está normal', ?)", q, ts);
+  run("INSERT INTO messages (request_id, role, content, card_json, created_at) VALUES (?, 'assistant', 'Tu precisa de um eletricista.', '{\"kind\":\"diagnostico\"}', ?)", q, ts);
+  offers.findProviders(q);
+  run('UPDATE request_providers SET selected = 0 WHERE request_id = ? AND provider_id = ?', q, joaoId);
+  offers.dispatch(q);
+  await settle();
+  await tap(MARCOS, 'pedido_novo', 'posso_atender', 'Posso atender', `rp:${rpFor(q, marcosId).id}`);
+  const ctx = turns.at(-1)!;
+  assert.match(ctx, /Escreve agora a primeira mensagem/);
+  assert.match(ctx, /Desenrola perguntou: O disjuntor desarmou\?/);
+  assert.match(ctx, /Cliente: não, está normal/);
+  assert.doesNotMatch(ctx, /Tu precisa de um eletricista/);
+  assert.doesNotMatch(ctx, /Desenrola perguntou: Tenho/);
+  await say(MARCOS, 'fica 95');
+  assert.equal(rpFor(q, marcosId).status, 'orcou');
+});
+
+test('o profissional também pode responder direto com o valor, sem tocar no botão, e vira orçamento', async () => {
   const e = newRequest('o disjuntor ta desarmando o tempo todo.');
   offers.findProviders(e);
   run('UPDATE request_providers SET selected = 0 WHERE request_id = ? AND provider_id = ?', e, marcosId);
@@ -259,9 +343,7 @@ test('passagem pra humano: agente para, admin responde, devolve e o agente retom
   offers.findProviders(d);
   offers.dispatch(d);
   await settle();
-  await tap(MARCOS, 'pedido_novo', 'ver', 'Ver detalhes', `rp:${rpFor(d, marcosId).id}`);
-  // Marcos ainda está em "b" (respondeu) → d vai pra fila; resolve b primeiro
-  await say(MARCOS, 'fica 90');
+  await tap(MARCOS, 'pedido_novo', 'posso_atender', 'Posso atender', `rp:${rpFor(d, marcosId).id}`);
   assert.equal(rpFor(d, marcosId).status, 'respondeu');
   await say(MARCOS, 'quero falar com uma pessoa');
   const rp = rpFor(d, marcosId);

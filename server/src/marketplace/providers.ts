@@ -18,6 +18,7 @@ addColumn('providers', 'bio', 'TEXT');
 addColumn('providers', 'paused_until', 'TEXT'); // "Agora não": sem ofertas até essa hora
 addColumn('providers', 'created_at', 'TEXT');
 addColumn('providers', 'notes', 'TEXT');
+addColumn('providers', 'held_inbound_json', 'TEXT'); // mensagem esperando ele dizer de qual pedido é
 // oferta → negociação no número único
 addColumn('request_providers', 'offered_at', 'TEXT');
 addColumn('request_providers', 'viewed_at', 'TEXT');
