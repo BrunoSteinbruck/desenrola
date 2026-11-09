@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { BrandMark } from '../App';
+import { IconBack, IconSearch, IconSend } from '../components/ui';
+import { phoneOk } from '../components/fields';
 import {
   adminApi,
   AdminApiError,
@@ -9,20 +12,19 @@ import {
   type Inbox,
   type ProviderStatus,
 } from './adminApi';
+import { ActionsMenu, ConfirmDialog, draftOk, Drawer, errMsg, ProviderFields, type MenuItem, type ProviderDraft } from './parts';
 import './admin.css';
 import { RecruitingTab } from './Recruiting';
 
 type Tab = 'profissionais' | 'conversas' | 'recrutamento';
 
 const STATUS_LABEL: Record<ProviderStatus, string> = {
-  convidado: 'Esperando o Sim',
+  convidado: 'Esperando confirmação',
   ativo: 'Ativo',
   pausado: 'Pausado',
   saiu: 'Saiu',
   bloqueado: 'Bloqueado',
 };
-
-const errMsg = (e: unknown) => (e instanceof Error ? e.message : 'Deu algum problema. Tenta de novo.');
 
 /** Aceita ISO ou "YYYY-MM-DD HH:MM:SS" (SQLite, UTC). */
 function parseDate(s: string | null | undefined): Date | null {
@@ -52,7 +54,7 @@ function regionsText(p: AdminProvider): string {
     if (!r.neighborhood || cur === null) byCity.set(r.city, null);
     else byCity.set(r.city, [...(cur ?? []), r.neighborhood]);
   }
-  return [...byCity.entries()].map(([city, ns]) => (ns ? `${city}: ${ns.join(', ')}` : `${city} (cidade toda)`)).join(' · ');
+  return [...byCity.entries()].map(([city, ns]) => (ns ? `${city}: ${ns.join(', ')}` : `${city}, cidade toda`)).join(' · ');
 }
 
 const initialTab = (): Tab => (location.hash === '#conversas' ? 'conversas' : location.hash === '#recrutamento' ? 'recrutamento' : 'profissionais');
@@ -63,12 +65,32 @@ export function Admin() {
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [inboxTick, setInboxTick] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const notify = useCallback((msg: string) => {
+    clearTimeout(toastTimer.current);
+    setToast(msg);
+    toastTimer.current = setTimeout(() => setToast(null), 5000);
+  }, []);
 
   const loadProviders = useCallback(() => {
-    adminApi.providers().then(setProviders, (e) => setLoadError(errMsg(e)));
+    adminApi.providers().then(
+      (r) => {
+        setProviders(r);
+        setLoadError(null);
+      },
+      (e) => setLoadError(errMsg(e)),
+    );
   }, []);
   const loadInbox = useCallback(() => {
-    adminApi.inbox().then(setInbox, (e) => setLoadError(errMsg(e)));
+    adminApi.inbox().then(
+      (r) => {
+        setInbox(r);
+        setLoadError(null);
+      },
+      (e) => setLoadError(errMsg(e)),
+    );
     setInboxTick((t) => t + 1);
   }, []);
 
@@ -79,356 +101,342 @@ export function Admin() {
     return subscribeAdmin({ inbox: loadInbox, providers: loadProviders });
   }, [loadProviders, loadInbox]);
 
+  // fora do ar (deploy): tenta de novo sozinho, sem ninguém precisar clicar
+  useEffect(() => {
+    if (!loadError) return;
+    const t = setInterval(() => {
+      loadProviders();
+      loadInbox();
+    }, 5000);
+    return () => clearInterval(t);
+  }, [loadError, loadProviders, loadInbox]);
+
   const switchTab = (t: Tab) => {
     setTab(t);
     history.replaceState(null, '', t === 'profissionais' ? location.pathname : `#${t}`);
   };
 
   const openHandoffs = inbox?.handoffs.length ?? 0;
+  const tabs: { id: Tab; label: string; badge?: number }[] = [
+    { id: 'profissionais', label: 'Profissionais' },
+    { id: 'conversas', label: 'Conversas', badge: openHandoffs },
+    { id: 'recrutamento', label: 'Recrutamento' },
+  ];
 
   return (
-    <>
-      <div className="backdrop" aria-hidden="true">
-        <span className="b1" />
-        <span className="b2" />
-        <span className="b3" />
-      </div>
-      <div className="adm">
-        <header className="adm-head glass">
-          <div className="adm-brand">Desenrola · Admin</div>
-          <nav className="adm-tabs" role="tablist" aria-label="Seções">
-            <button
-              role="tab"
-              aria-selected={tab === 'profissionais'}
-              className={`adm-tab${tab === 'profissionais' ? ' active' : ''}`}
-              onClick={() => switchTab('profissionais')}
-            >
-              Profissionais
-            </button>
-            <button
-              role="tab"
-              aria-selected={tab === 'conversas'}
-              className={`adm-tab${tab === 'conversas' ? ' active' : ''}`}
-              onClick={() => switchTab('conversas')}
-            >
-              Conversas
-              {openHandoffs > 0 && (
-                <span className="adm-badge" aria-label={`${openHandoffs} atendimentos abertos`}>
-                  {openHandoffs}
+    <div className="adm">
+      <header className="adm-bar">
+        <a className="adm-brand" href="/" aria-label="Voltar pro site">
+          <BrandMark size={26} />
+          desenrola
+        </a>
+        <nav className="adm-tabs" aria-label="Seções">
+          {tabs.map((t) => (
+            <button key={t.id} type="button" aria-current={tab === t.id ? 'page' : undefined} className={`adm-tab${tab === t.id ? ' active' : ''}`} onClick={() => switchTab(t.id)}>
+              {t.label}
+              {!!t.badge && (
+                <span className="adm-badge" aria-label={`${t.badge} atendimentos abertos`}>
+                  {t.badge}
                 </span>
               )}
             </button>
-            <button
-              role="tab"
-              aria-selected={tab === 'recrutamento'}
-              className={`adm-tab${tab === 'recrutamento' ? ' active' : ''}`}
-              onClick={() => switchTab('recrutamento')}
-            >
-              Recrutamento
-            </button>
-          </nav>
-          <span style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-            <a className="adm-back" href="/">
-              Voltar pro site
-            </a>
-            <button type="button" className="adm-back" style={{ background: 'none', border: 0, cursor: 'pointer', font: 'inherit' }} onClick={() => void adminApi.logout().finally(() => location.reload())}>
-              Sair
-            </button>
-          </span>
-        </header>
+          ))}
+        </nav>
+        <div className="adm-bar-right">
+          <a className="adm-link" href="/">
+            Ver o site
+          </a>
+          <button type="button" className="adm-link" onClick={() => void adminApi.logout().finally(() => location.reload())}>
+            Sair
+          </button>
+        </div>
+      </header>
 
-        {loadError && (
-          <p className="error-text adm-load-error" role="alert">
-            {loadError}{' '}
-            <button className="btn ghost adm-small-btn" onClick={() => { setLoadError(null); loadProviders(); loadInbox(); }}>
-              Tentar de novo
-            </button>
-          </p>
-        )}
+      {loadError && (
+        <div className="adm-banner" role="status">
+          <span className="adm-spin" aria-hidden="true" />
+          {loadError}
+        </div>
+      )}
 
-        {tab === 'profissionais' ? (
-          <ProvidersTab providers={providers} reload={loadProviders} />
-        ) : tab === 'recrutamento' ? (
-          <RecruitingTab onPromoted={loadProviders} />
-        ) : (
-          <ConversationsTab inbox={inbox} tick={inboxTick} reload={loadInbox} />
-        )}
-      </div>
-    </>
+      {tab === 'profissionais' ? (
+        <ProvidersTab providers={providers} reload={loadProviders} notify={notify} />
+      ) : tab === 'recrutamento' ? (
+        <RecruitingTab onPromoted={loadProviders} notify={notify} serviceOptions={allServices(providers)} />
+      ) : (
+        <ConversationsTab inbox={inbox} tick={inboxTick} reload={loadInbox} />
+      )}
+
+      {toast && (
+        <div className="adm-toast" role="status">
+          {toast}
+        </div>
+      )}
+    </div>
   );
 }
+
+const allServices = (ps: AdminProvider[] | null) => [...new Set((ps ?? []).flatMap((p) => p.categories))];
 
 /* ------------------------------------------------------------------ */
 /* Profissionais                                                       */
 /* ------------------------------------------------------------------ */
 
-function ProvidersTab({ providers, reload }: { providers: AdminProvider[] | null; reload: () => void }) {
-  const [editing, setEditing] = useState<AdminProvider | null>(null);
+type Group = 'todos' | 'ativos' | 'esperando' | 'pausados' | 'fora';
+const GROUPS: { id: Group; label: string; has: (s: ProviderStatus) => boolean }[] = [
+  { id: 'todos', label: 'Todos', has: () => true },
+  { id: 'ativos', label: 'Ativos', has: (s) => s === 'ativo' },
+  { id: 'esperando', label: 'Esperando', has: (s) => s === 'convidado' },
+  { id: 'pausados', label: 'Pausados', has: (s) => s === 'pausado' },
+  { id: 'fora', label: 'Fora', has: (s) => s === 'saiu' || s === 'bloqueado' },
+];
+
+type Panel = { kind: 'add' } | { kind: 'edit'; id: number } | null;
+
+function ProvidersTab({ providers, reload, notify }: { providers: AdminProvider[] | null; reload: () => void; notify: (m: string) => void }) {
+  const [panel, setPanel] = useState<Panel>(null);
   const [filter, setFilter] = useState('');
+  const [group, setGroup] = useState<Group>('todos');
+  const [blocking, setBlocking] = useState<AdminProvider | null>(null);
 
   const shown = useMemo(() => {
     if (!providers) return null;
     const q = filter.trim().toLowerCase();
-    if (!q) return providers;
-    return providers.filter((p) =>
-      [p.name, p.phone_display, p.phone, p.categories.join(' '), regionsText(p), STATUS_LABEL[p.status] ?? p.status]
-        .join(' ')
-        .toLowerCase()
-        .includes(q),
+    const has = GROUPS.find((g) => g.id === group)!.has;
+    return providers.filter(
+      (p) =>
+        has(p.status) &&
+        (!q || [p.name, p.phone_display, p.phone, p.categories.join(' '), regionsText(p)].join(' ').toLowerCase().includes(q)),
     );
-  }, [providers, filter]);
-
-  return (
-    <div className="adm-providers">
-      <AddProvider onAdded={reload} />
-
-      <section className="glass adm-panel" aria-labelledby="adm-list-title">
-        <div className="adm-panel-head">
-          <h2 id="adm-list-title">
-            Profissionais {providers && <span className="adm-count">{providers.length}</span>}
-          </h2>
-          <label className="sr-only" htmlFor="adm-filter">
-            Filtrar profissionais
-          </label>
-          <input
-            id="adm-filter"
-            className="ob-input adm-filter"
-            placeholder="Filtrar por nome, categoria, bairro"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-        </div>
-        {!shown ? (
-          <p className="adm-empty">Carregando…</p>
-        ) : shown.length === 0 ? (
-          <p className="adm-empty">{providers?.length ? 'Ninguém com esse filtro.' : 'Nenhum profissional cadastrado ainda.'}</p>
-        ) : (
-          <ul className="adm-plist">
-            {shown.map((p) => (
-              <ProviderRow key={p.id} p={p} onEdit={() => setEditing(p)} reload={reload} />
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {editing && <EditProvider p={editing} onClose={() => setEditing(null)} onSaved={reload} />}
-    </div>
-  );
-}
-
-function AddProvider({ onAdded }: { onAdded: () => void }) {
-  const empty = { name: '', phone: '', categories: '', city: 'Porto Alegre', neighborhoods: '', notes: '' };
-  const [f, setF] = useState(empty);
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const set = (k: keyof typeof empty) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    setDone(null);
-    try {
-      const r = await adminApi.createProvider({
-        name: f.name,
-        phone: f.phone,
-        categories: f.categories,
-        city: f.city,
-        neighborhoods: f.neighborhoods,
-        notes: f.notes.trim() || null,
-      });
-      setDone(
-        r.invite.sent
-          ? `Pedido de confirmação enviado no WhatsApp pra ${f.name.trim().split(/\s+/)[0]}.`
-          : `Salvo. Confirmação não enviada${r.invite.reason ? `: ${r.invite.reason}` : ''}.`,
-      );
-      setF(empty);
-      onAdded();
-    } catch (err) {
-      setError(errMsg(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <section className="glass adm-panel" aria-labelledby="adm-add-title">
-      <form className="adm-form" onSubmit={submit}>
-        <h2 id="adm-add-title">Adicionar profissional</h2>
-        <div className="adm-grid">
-          <label className="field">
-            Nome
-            <input className="ob-input" required value={f.name} onChange={set('name')} autoComplete="off" />
-          </label>
-          <label className="field">
-            Celular
-            <input className="ob-input" required type="tel" inputMode="tel" placeholder="(51) 99999-9999" value={f.phone} onChange={set('phone')} autoComplete="off" />
-          </label>
-          <label className="field adm-span">
-            Categorias
-            <input className="ob-input" required placeholder="eletricista, encanador" value={f.categories} onChange={set('categories')} />
-            <span className="adm-hint">Separa por vírgula.</span>
-          </label>
-          <label className="field">
-            Cidade
-            <input className="ob-input" required value={f.city} onChange={set('city')} />
-          </label>
-          <label className="field">
-            Bairros
-            <input className="ob-input" placeholder="Moinhos, Petrópolis" value={f.neighborhoods} onChange={set('neighborhoods')} />
-            <span className="adm-hint">Vazio = cidade toda.</span>
-          </label>
-          <label className="field adm-span">
-            Observações
-            <textarea className="ob-input adm-textarea" rows={2} value={f.notes} onChange={set('notes')} />
-          </label>
-        </div>
-        <div className="adm-form-foot">
-          <button className="btn dark" type="submit" disabled={busy}>
-            {busy ? 'Enviando…' : 'Adicionar e pedir confirmação'}
-          </button>
-          <div aria-live="polite">
-            {done && <span className="tag ok">{done}</span>}
-            {error && <span className="error-text">{error}</span>}
-          </div>
-        </div>
-      </form>
-    </section>
-  );
-}
-
-function ProviderRow({ p, onEdit, reload }: { p: AdminProvider; onEdit: () => void; reload: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  }, [providers, filter, group]);
 
   const act = async (fn: () => Promise<string | null>) => {
-    setBusy(true);
-    setMsg(null);
     try {
       const text = await fn();
-      if (text) setMsg({ ok: true, text });
+      if (text) notify(text);
       reload();
     } catch (e) {
-      setMsg({ ok: false, text: errMsg(e) });
-    } finally {
-      setBusy(false);
+      notify(errMsg(e));
     }
   };
-
-  const resend = () =>
+  const resend = (p: AdminProvider) =>
     act(async () => {
       const r = await adminApi.invite(p.id);
-      return r.sent ? 'Confirmação reenviada.' : `Não reenviado${r.reason ? `: ${r.reason}` : ''}.`;
+      return r.sent ? `Confirmação reenviada pra ${p.name}.` : `Não reenviei${r.reason ? `: ${r.reason}` : ''}.`;
     });
-  const setStatus = (status: 'ativo' | 'pausado' | 'bloqueado') =>
+  const setStatus = (p: AdminProvider, status: 'ativo' | 'pausado' | 'bloqueado') =>
     act(async () => {
       await adminApi.updateProvider(p.id, { status });
       return null;
     });
-  const block = () => {
-    if (confirm(`Bloquear ${p.name}? Ele deixa de receber pedidos.`)) setStatus('bloqueado');
-  };
 
-  const canPause = p.status === 'ativo' || p.status === 'convidado';
+  const menuFor = (p: AdminProvider): MenuItem[] => [
+    { label: 'Editar', onClick: () => setPanel({ kind: 'edit', id: p.id }) },
+    ...(p.status !== 'ativo' && p.status !== 'bloqueado' ? [{ label: 'Reenviar confirmação', onClick: () => void resend(p) }] : []),
+    p.status === 'ativo' || p.status === 'convidado'
+      ? { label: 'Pausar', onClick: () => void setStatus(p, 'pausado') }
+      : { label: 'Ativar', onClick: () => void setStatus(p, 'ativo') },
+    ...(p.status !== 'bloqueado' ? [{ label: 'Bloquear', danger: true, onClick: () => setBlocking(p) }] : []),
+  ];
+
+  const editing = panel?.kind === 'edit' ? providers?.find((p) => p.id === panel.id) : null;
 
   return (
-    <li className="adm-prow">
-      <div className="adm-prow-main">
-        <div className="adm-prow-top">
-          <span className="adm-pname">{p.name}</span>
-          <span className={`adm-pill st-${p.status}`}>{STATUS_LABEL[p.status] ?? p.status}</span>
-        </div>
-        <div className="adm-pmeta">
-          <span>{p.phone_display || p.phone || 'sem telefone'}</span>
-          <span>{p.categories.join(', ') || 'sem categoria'}</span>
-          <span>{regionsText(p)}</span>
-          {p.our_rating_count > 0 && p.our_rating_avg != null && (
-            <span>
-              Nota {p.our_rating_avg.toFixed(1)} ({p.our_rating_count})
-            </span>
-          )}
-        </div>
-        <div className="adm-consent">
-          {p.opt_out_at ? (
-            <span>Pediu pra sair em {fmtDate(p.opt_out_at)}</span>
-          ) : p.opt_in_at ? (
-            <span title={p.opt_in_text ?? undefined}>
-              Disse Sim em {fmtDate(p.opt_in_at)}
-              {p.opt_in_text && <q className="adm-optin">{p.opt_in_text}</q>}
-            </span>
-          ) : (
-            <span>Cadastrado em {fmtDate(p.created_at, false)}, sem confirmação ainda</span>
-          )}
-          {p.paused_until && p.status === 'pausado' && <span> · pausado até {fmtDate(p.paused_until)}</span>}
-        </div>
-        {p.notes && <div className="adm-notes">{p.notes}</div>}
-        {msg && (
-          <div className={msg.ok ? 'tag ok' : 'error-text adm-small'} role="status">
-            {msg.text}
-          </div>
-        )}
-      </div>
-      <div className="adm-prow-actions">
-        {p.status !== 'ativo' && p.status !== 'bloqueado' && (
-          <button className="btn adm-small-btn" disabled={busy} onClick={resend}>
-            Reenviar confirmação
-          </button>
-        )}
-        {canPause ? (
-          <button className="btn adm-small-btn" disabled={busy} onClick={() => setStatus('pausado')}>
-            Pausar
-          </button>
-        ) : (
-          <button className="btn adm-small-btn" disabled={busy} onClick={() => setStatus('ativo')}>
-            Ativar
-          </button>
-        )}
-        <button className="btn adm-small-btn" disabled={busy} onClick={onEdit}>
-          Editar
+    <main className="adm-page">
+      <div className="adm-page-head">
+        <h1>Profissionais</h1>
+        <button type="button" className="abtn primary" onClick={() => setPanel({ kind: 'add' })}>
+          Adicionar profissional
         </button>
-        {p.status !== 'bloqueado' && (
-          <button className="btn ghost adm-small-btn adm-danger" disabled={busy} onClick={block}>
-            Bloquear
-          </button>
+      </div>
+
+      <div className="adm-toolbar">
+        <div className="adm-groups" role="group" aria-label="Filtrar por situação">
+          {GROUPS.map((g) => {
+            const n = providers?.filter((p) => g.has(p.status)).length ?? 0;
+            return (
+              <button key={g.id} type="button" aria-pressed={group === g.id} className={group === g.id ? 'on' : ''} onClick={() => setGroup(g.id)}>
+                {g.label} <span>{n}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="adm-search">
+          <IconSearch />
+          <label className="sr-only" htmlFor="adm-filter">
+            Buscar profissionais
+          </label>
+          <input id="adm-filter" type="search" placeholder="Buscar por nome, serviço ou bairro" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="adm-table-wrap">
+        {!shown ? (
+          <p className="adm-empty">Carregando…</p>
+        ) : shown.length === 0 ? (
+          providers?.length ? (
+            <p className="adm-empty">Ninguém com esse filtro.</p>
+          ) : (
+            <div className="adm-empty">
+              <strong>Nenhum profissional ainda</strong>
+              <span>Quem tu adicionar recebe um pedido de confirmação no WhatsApp.</span>
+            </div>
+          )
+        ) : (
+          <table className="adm-table">
+            <thead>
+              <tr>
+                <th>Profissional</th>
+                <th>Serviços</th>
+                <th>Região</th>
+                <th>Situação</th>
+                <th>Nota</th>
+                <th>
+                  <span className="sr-only">Ações</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((p) => (
+                <tr key={p.id} className="clickable" onClick={() => setPanel({ kind: 'edit', id: p.id })}>
+                  <td data-cell="main">
+                    <button type="button" className="cell-title" onClick={(e) => { e.stopPropagation(); setPanel({ kind: 'edit', id: p.id }); }}>
+                      {p.name}
+                    </button>
+                    <div className="cell-sub">{p.phone_display || p.phone || 'sem telefone'}</div>
+                  </td>
+                  <td>{p.categories.join(', ') || 'sem serviço'}</td>
+                  <td className="cell-region">{regionsText(p)}</td>
+                  <td>
+                    <StatusDot status={p.status} />
+                  </td>
+                  <td className="cell-num">{p.our_rating_count > 0 && p.our_rating_avg != null ? `${p.our_rating_avg.toFixed(1)} (${p.our_rating_count})` : <span className="cell-none">-</span>}</td>
+                  <td className="cell-actions">
+                    <ActionsMenu label={`Ações de ${p.name}`} items={menuFor(p)} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
-    </li>
+
+      {panel?.kind === 'add' && (
+        <AddProvider
+          serviceOptions={allServices(providers)}
+          onClose={() => setPanel(null)}
+          onAdded={(msg) => {
+            notify(msg);
+            reload();
+          }}
+        />
+      )}
+      {editing && (
+        <EditProvider
+          key={editing.id}
+          p={editing}
+          serviceOptions={allServices(providers)}
+          onClose={() => setPanel(null)}
+          onSaved={reload}
+          onResend={() => void resend(editing)}
+        />
+      )}
+      {blocking && (
+        <ConfirmDialog
+          danger
+          title={`Bloquear ${blocking.name}?`}
+          text="Deixa de receber pedidos. Dá pra ativar de novo depois."
+          confirmLabel="Bloquear"
+          onClose={() => setBlocking(null)}
+          onConfirm={() => {
+            void setStatus(blocking, 'bloqueado');
+            setBlocking(null);
+          }}
+        />
+      )}
+    </main>
   );
 }
 
-function EditProvider({ p, onClose, onSaved }: { p: AdminProvider; onClose: () => void; onSaved: () => void }) {
-  const city = p.regions[0]?.city ?? 'Porto Alegre';
-  const [f, setF] = useState({
-    name: p.name,
-    categories: p.categories.join(', '),
-    city,
-    neighborhoods: p.regions.filter((r) => r.city === city && r.neighborhood).map((r) => r.neighborhood).join(', '),
-    notes: p.notes ?? '',
-  });
+function StatusDot({ status }: { status: ProviderStatus }) {
+  return <span className={`status-dot st-${status}`}>{STATUS_LABEL[status] ?? status}</span>;
+}
+
+function AddProvider({ serviceOptions, onClose, onAdded }: { serviceOptions: string[]; onClose: () => void; onAdded: (msg: string) => void }) {
+  const [d, setD] = useState<ProviderDraft>({ name: '', phone: '', services: [], coverage: { city: 'Porto Alegre', neighborhoods: null }, notes: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
-  const first = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    first.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!draftOk(d, true) || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await adminApi.createProvider({
+        name: d.name,
+        phone: d.phone,
+        categories: d.services,
+        city: d.coverage.city,
+        neighborhoods: d.coverage.neighborhoods ?? [],
+        notes: d.notes.trim() || null,
+      });
+      onAdded(
+        r.invite.sent
+          ? `Pedido de confirmação enviado no WhatsApp pra ${d.name.trim().split(/\s+/)[0]}.`
+          : `Salvo, mas a confirmação não foi enviada${r.invite.reason ? `: ${r.invite.reason}` : ''}.`,
+      );
+      onClose();
+    } catch (err) {
+      setError(errMsg(err));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Drawer
+      title="Adicionar profissional"
+      subtitle="Só recebe pedidos depois de confirmar no WhatsApp."
+      onClose={onClose}
+      onSubmit={submit}
+      footer={
+        <>
+          {error && <p className="error-text">{error}</p>}
+          <div className="drawer-actions">
+            <button type="button" className="abtn" onClick={onClose}>
+              Cancelar
+            </button>
+            <button type="submit" className="abtn primary" disabled={busy || !draftOk(d, true) || !phoneOk(d.phone)}>
+              {busy ? 'Enviando…' : 'Adicionar e pedir confirmação'}
+            </button>
+          </div>
+        </>
+      }
+    >
+      <ProviderFields value={d} onChange={setD} phone="editable" serviceOptions={serviceOptions} />
+    </Drawer>
+  );
+}
+
+function EditProvider({ p, serviceOptions, onClose, onSaved, onResend }: { p: AdminProvider; serviceOptions: string[]; onClose: () => void; onSaved: () => void; onResend: () => void }) {
+  const city = p.regions[0]?.city ?? 'Porto Alegre';
+  const hoods = p.regions.filter((r) => r.city === city && r.neighborhood).map((r) => r.neighborhood!);
+  const [d, setD] = useState<ProviderDraft>({ name: p.name, phone: '', services: p.categories, coverage: { city, neighborhoods: hoods.length ? hoods : null }, notes: p.notes ?? '' });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!draftOk(d, false) || busy) return;
     setBusy(true);
     setError(null);
     try {
       await adminApi.updateProvider(p.id, {
-        name: f.name,
-        categories: f.categories,
-        city: f.city,
-        neighborhoods: f.neighborhoods,
-        notes: f.notes,
+        name: d.name,
+        categories: d.services,
+        city: d.coverage.city,
+        neighborhoods: d.coverage.neighborhoods ?? [],
+        notes: d.notes,
       });
       onSaved();
       onClose();
@@ -439,44 +447,57 @@ function EditProvider({ p, onClose, onSaved }: { p: AdminProvider; onClose: () =
   };
 
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <form className="dialog glass adm-dialog" role="dialog" aria-modal="true" aria-labelledby="adm-edit-title" onSubmit={submit}>
-        <h2 id="adm-edit-title">Editar {p.name}</h2>
-        <label className="field">
-          Nome
-          <input ref={first} className="ob-input" required value={f.name} onChange={set('name')} />
-        </label>
-        <label className="field">
-          Categorias
-          <input className="ob-input" required value={f.categories} onChange={set('categories')} />
-          <span className="adm-hint">Separa por vírgula.</span>
-        </label>
-        <div className="field-row">
-          <label className="field">
-            Cidade
-            <input className="ob-input" required value={f.city} onChange={set('city')} />
-          </label>
-          <label className="field">
-            Bairros
-            <input className="ob-input" value={f.neighborhoods} onChange={set('neighborhoods')} />
-            <span className="adm-hint">Vazio = cidade toda.</span>
-          </label>
+    <Drawer
+      title={p.name}
+      subtitle={<StatusDot status={p.status} />}
+      onClose={onClose}
+      onSubmit={submit}
+      footer={
+        <>
+          {error && <p className="error-text">{error}</p>}
+          <div className="drawer-actions">
+            <button type="button" className="abtn" onClick={onClose}>
+              Cancelar
+            </button>
+            <button type="submit" className="abtn primary" disabled={busy || !draftOk(d, false)}>
+              {busy ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
+        </>
+      }
+    >
+      <ProviderFields value={d} onChange={setD} phone={p.phone_display || p.phone || 'sem telefone'} serviceOptions={serviceOptions} />
+      <dl className="facts">
+        <div>
+          <dt>Confirmação</dt>
+          <dd>
+            {p.opt_out_at ? (
+              `Pediu pra sair em ${fmtDate(p.opt_out_at)}`
+            ) : p.opt_in_at ? (
+              <>
+                Confirmou em {fmtDate(p.opt_in_at)}
+                {p.opt_in_text && <small>{p.opt_in_text}</small>}
+              </>
+            ) : (
+              <>
+                Cadastrado em {fmtDate(p.created_at, false)}, ainda sem confirmar.{' '}
+                {p.status !== 'bloqueado' && (
+                  <button type="button" className="adm-inline" onClick={onResend}>
+                    Reenviar
+                  </button>
+                )}
+              </>
+            )}
+          </dd>
         </div>
-        <label className="field">
-          Observações
-          <textarea className="ob-input adm-textarea" rows={2} value={f.notes} onChange={set('notes')} />
-        </label>
-        {error && <p className="error-text">{error}</p>}
-        <div className="actions adm-dialog-actions">
-          <button type="button" className="btn ghost" onClick={onClose}>
-            Cancelar
-          </button>
-          <button type="submit" className="btn dark" disabled={busy}>
-            {busy ? 'Salvando…' : 'Salvar'}
-          </button>
-        </div>
-      </form>
-    </div>
+        {p.paused_until && p.status === 'pausado' && (
+          <div>
+            <dt>Pausado até</dt>
+            <dd>{fmtDate(p.paused_until)}</dd>
+          </div>
+        )}
+      </dl>
+    </Drawer>
   );
 }
 
@@ -485,7 +506,7 @@ function EditProvider({ p, onClose, onSaved }: { p: AdminProvider; onClose: () =
 /* ------------------------------------------------------------------ */
 
 function WindowTag({ open }: { open: boolean }) {
-  return <span className={`adm-win${open ? ' on' : ''}`}>{open ? 'janela aberta' : 'janela fechada'}</span>;
+  return <span className={`win${open ? ' on' : ''}`}>{open ? 'Janela aberta' : 'Janela fechada'}</span>;
 }
 
 function ConversationsTab({ inbox, tick, reload }: { inbox: Inbox | null; tick: number; reload: () => void }) {
@@ -495,58 +516,44 @@ function ConversationsTab({ inbox, tick, reload }: { inbox: Inbox | null; tick: 
   const others = inbox ? inbox.conversations.filter((c) => !inbox.handoffs.some((h) => h.phone === c.phone)) : [];
 
   return (
-    <div className={`adm-inbox${selected ? ' has-sel' : ''}`}>
-      <aside className="glass adm-panel adm-clist" aria-label="Conversas">
+    <div className={`inbox${selected ? ' has-sel' : ''}`}>
+      <aside className="inbox-list" aria-label="Conversas">
         {!inbox ? (
           <p className="adm-empty">Carregando…</p>
         ) : (
           <>
-            <div className="adm-section-label">Precisam de gente ({inbox.handoffs.length})</div>
-            {inbox.handoffs.length === 0 ? (
-              <p className="adm-empty small">Nenhum atendimento aberto.</p>
-            ) : (
-              <ul className="adm-citems">
-                {inbox.handoffs.map((h) => (
-                  <li key={`h${h.id}`}>
-                    <button
-                      className={`adm-citem handoff${selected === h.phone ? ' active' : ''}`}
-                      aria-current={selected === h.phone ? 'true' : undefined}
-                      onClick={() => setSelected(h.phone)}
-                    >
-                      <span className="adm-citem-top">
-                        <span className="adm-citem-name">{h.provider_name ?? h.phone_display}</span>
-                        <span className="adm-citem-time">{fmtShort(h.created_at)}</span>
-                      </span>
-                      <span className="adm-citem-reason">{h.reason || 'sem motivo'}</span>
-                      <span className="adm-citem-sub">
-                        {h.provider_name && <span>{h.phone_display}</span>}
+            {inbox.handoffs.length > 0 && (
+              <>
+                <h2 className="inbox-label">Precisam de atendimento</h2>
+                <ul>
+                  {inbox.handoffs.map((h) => (
+                    <li key={`h${h.id}`}>
+                      <button type="button" className={`inbox-item${selected === h.phone ? ' active' : ''}`} aria-current={selected === h.phone ? 'true' : undefined} onClick={() => setSelected(h.phone)}>
+                        <span className="inbox-top">
+                          <strong>{h.provider_name ?? h.phone_display}</strong>
+                          <time>{fmtShort(h.created_at)}</time>
+                        </span>
+                        <span className="inbox-reason">{h.reason || 'Sem motivo informado'}</span>
                         <WindowTag open={h.window_open} />
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
-            <div className="adm-section-label">Recentes</div>
+            <h2 className="inbox-label">Recentes</h2>
             {others.length === 0 ? (
-              <p className="adm-empty small">Nada por aqui.</p>
+              <p className="adm-empty small">Nenhuma conversa ainda.</p>
             ) : (
-              <ul className="adm-citems">
+              <ul>
                 {others.map((c) => (
                   <li key={c.phone}>
-                    <button
-                      className={`adm-citem${selected === c.phone ? ' active' : ''}`}
-                      aria-current={selected === c.phone ? 'true' : undefined}
-                      onClick={() => setSelected(c.phone)}
-                    >
-                      <span className="adm-citem-top">
-                        <span className="adm-citem-name">{c.name ?? c.phone_display}</span>
-                        <span className="adm-citem-time">{fmtShort(c.last_at)}</span>
+                    <button type="button" className={`inbox-item${selected === c.phone ? ' active' : ''}`} aria-current={selected === c.phone ? 'true' : undefined} onClick={() => setSelected(c.phone)}>
+                      <span className="inbox-top">
+                        <strong>{c.name ?? c.phone_display}</strong>
+                        <time>{fmtShort(c.last_at)}</time>
                       </span>
-                      <span className="adm-citem-sub">
-                        {c.name && <span>{c.phone_display}</span>}
-                        <WindowTag open={c.window_open} />
-                      </span>
+                      <WindowTag open={c.window_open} />
                     </button>
                   </li>
                 ))}
@@ -556,30 +563,18 @@ function ConversationsTab({ inbox, tick, reload }: { inbox: Inbox | null; tick: 
         )}
       </aside>
 
-      <section className="glass adm-panel adm-thread-panel" aria-label="Conversa selecionada">
+      <section className="inbox-thread" aria-label="Conversa selecionada">
         {selected ? (
           <ThreadView key={selected} phone={selected} handoff={handoffFor(selected)} tick={tick} onBack={() => setSelected(null)} reloadInbox={reload} />
         ) : (
-          <p className="adm-empty center">Escolhe uma conversa à esquerda.</p>
+          <p className="adm-empty center">Escolhe uma conversa.</p>
         )}
       </section>
     </div>
   );
 }
 
-function ThreadView({
-  phone,
-  handoff,
-  tick,
-  onBack,
-  reloadInbox,
-}: {
-  phone: string;
-  handoff: Handoff | undefined;
-  tick: number;
-  onBack: () => void;
-  reloadInbox: () => void;
-}) {
+function ThreadView({ phone, handoff, tick, onBack, reloadInbox }: { phone: string; handoff: Handoff | undefined; tick: number; onBack: () => void; reloadInbox: () => void }) {
   const [t, setT] = useState<ConversationThread | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState('');
@@ -640,50 +635,54 @@ function ThreadView({
   };
 
   return (
-    <div className="adm-thread">
-      <div className="adm-thread-head">
-        <button className="btn ghost adm-small-btn adm-back-btn" onClick={onBack}>
-          Voltar
+    <div className="thread-view">
+      <header className="thread-head">
+        <button type="button" className="adm-icon thread-back" aria-label="Voltar pra lista" onClick={onBack}>
+          <IconBack />
         </button>
-        <div className="adm-thread-title">
+        <div className="thread-title">
           <h2>{handoff?.provider_name ?? t?.phone_display ?? phone}</h2>
-          <div className="adm-thread-sub">
+          <div>
             {handoff?.provider_name && <span>{t?.phone_display}</span>}
             <WindowTag open={windowOpen} />
-            {t?.opt_out_at && <span className="adm-danger">pediu pra sair</span>}
+            {t?.opt_out_at && <span className="txt-danger">Pediu pra sair</span>}
           </div>
         </div>
-      </div>
+      </header>
 
       {handoff && (
-        <div className="adm-handoff-bar">
+        <div className="handoff">
           <div>
-            <div className="adm-handoff-label">Atendimento aberto</div>
-            <div className="adm-handoff-reason">{handoff.reason || 'sem motivo'}</div>
+            <strong>Atendimento aberto</strong>
+            <span>{handoff.reason || 'Sem motivo informado'}</span>
           </div>
-          <div className="actions">
-            <button className="btn dark adm-small-btn" disabled={closing} onClick={() => close(true)}>
-              Devolver pro agente
+          <div className="handoff-actions">
+            <button type="button" className="abtn" disabled={closing} onClick={() => close(false)}>
+              Encerrar
             </button>
-            <button className="btn adm-small-btn" disabled={closing} onClick={() => close(false)}>
-              Encerrar sem devolver
+            <button type="button" className="abtn primary" disabled={closing} onClick={() => close(true)}>
+              Devolver pro agente
             </button>
           </div>
         </div>
       )}
 
-      <div className="adm-msgs" ref={scrollRef}>
+      <div className="msgs" ref={scrollRef}>
         {!t ? (
           <p className="adm-empty center">{error ? '' : 'Carregando…'}</p>
         ) : t.messages.length === 0 ? (
           <p className="adm-empty center">Sem mensagens.</p>
         ) : (
           t.messages.map((m, i) => (
-            <div key={i} className={`adm-bubble ${m.dir}${m.error ? ' failed' : ''}`}>
-              {m.dir === 'out' && m.template && <div className="adm-bubble-tpl">{m.template}</div>}
-              <div className="adm-bubble-text">{m.text || <em>(sem texto)</em>}</div>
-              {m.error && <div className="adm-bubble-err">{m.state === 'blocked' ? 'Bloqueada' : 'Falhou'}: {m.error}</div>}
-              <div className="adm-bubble-meta">
+            <div key={i} className={`msg ${m.dir}${m.error ? ' failed' : ''}`}>
+              {m.dir === 'out' && m.template && <div className="msg-tpl">{m.template}</div>}
+              <div className="msg-text">{m.text || <em>(sem texto)</em>}</div>
+              {m.error && (
+                <div className="msg-err">
+                  {m.state === 'blocked' ? 'Bloqueada' : 'Falhou'}: {m.error}
+                </div>
+              )}
+              <div className="msg-meta">
                 {fmtDate(m.at)}
                 {m.dir === 'out' && (m.delivery || m.state) && <> · {m.delivery ?? m.state}</>}
               </div>
@@ -693,37 +692,38 @@ function ThreadView({
       </div>
 
       {error && (
-        <p className="error-text adm-thread-error" role="alert">
+        <p className="error-text thread-error" role="alert">
           {error}
         </p>
       )}
 
-      <form className="adm-reply" onSubmit={send}>
-        {t && !windowOpen && (
-          <p className="adm-reply-closed">Janela de 24h fechada: só dá pra mandar template. Espera a pessoa escrever.</p>
+      <form className="reply" onSubmit={send}>
+        {t && !windowOpen ? (
+          <p className="reply-closed">Janela de 24h fechada. Só dá pra responder quando a pessoa escrever de novo.</p>
+        ) : (
+          <div className="reply-box">
+            <label className="sr-only" htmlFor="adm-reply-text">
+              Resposta
+            </label>
+            <textarea
+              id="adm-reply-text"
+              rows={2}
+              placeholder="Escreve a resposta"
+              value={text}
+              disabled={sending}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  e.currentTarget.form?.requestSubmit();
+                }
+              }}
+            />
+            <button type="submit" className="abtn primary reply-send" aria-label="Enviar" disabled={sending || !text.trim()}>
+              <IconSend />
+            </button>
+          </div>
         )}
-        <div className="inline-input">
-          <label className="sr-only" htmlFor="adm-reply-text">
-            Resposta
-          </label>
-          <textarea
-            id="adm-reply-text"
-            rows={2}
-            placeholder={windowOpen ? 'Escreve a resposta' : 'Indisponível com a janela fechada'}
-            value={text}
-            disabled={!windowOpen || sending}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                e.currentTarget.form?.requestSubmit();
-              }
-            }}
-          />
-          <button className="btn dark" type="submit" disabled={!windowOpen || sending || !text.trim()}>
-            {sending ? 'Enviando…' : 'Enviar'}
-          </button>
-        </div>
       </form>
     </div>
   );

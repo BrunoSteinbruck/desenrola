@@ -48,6 +48,17 @@ Já aplicado em `web/src/styles.css` (variáveis no `:root`) e no admin. O víde
 - **Fora do padrão:** a palavra destacada em bloco marinho com texto branco. O Bruno tirou esse recurso em 2026-11-07.
 - **Sem:** emoji, degradê no app (só na entrada do site) e tela poluída.
 
+## Telas de trabalho e formulários
+
+A tela principal (home, conversa e barra lateral do cliente) segue como descrito acima. Todo o resto é mais sóbrio: admin, cadastro de profissional, login, primeiro acesso e configurações. O Bruno achou o visual anterior dessas telas "slop" em 2026-11-09.
+
+- **Plano:** linhas finas em vez de cartões flutuando com sombra. Cantos de 8 a 14px. Sombra só no que fica por cima (menu, janela, lista de opções).
+- **Admin:** tabela, não cartão por pessoa. Adicionar e editar abrem num painel lateral, nunca com formulário sempre aberto na tela. Ações secundárias ficam no menu "⋯". Situação é ponto + texto, sem pílula colorida.
+- **Botões:** retangulares, cantos de 8 a 9px, peso 500. Pílula só na tela principal.
+- **Nunca pedir "separa por vírgula".** Vários valores usam `MultiSelect`: uma caixa que abre uma lista marcável, sem etiquetas soltas nem chips. Um valor com sugestões usa `ComboInput`; celular usa `PhoneInput` com máscara; código usa `CodeInput`, que envia sozinho ao completar. Tudo em `web/src/components/fields.tsx`, com as listas em `web/src/lib/options.ts`.
+- **Poucos passos:** tudo que cabe numa tela só fica numa tela só.
+- **Erro técnico não aparece pra pessoa:** "Erro 502" vira um aviso em português e o site tenta de novo sozinho.
+
 ## Logo (provisório)
 
 O nome "desenrola" vai em minúsculo, em Inter Tight 800. O ícone é um fio enrolado que vira uma linha reta e termina num ponto: o problema embolado que se desenrola. Ele aparece em marinho sobre um quadrado ou círculo azul céu, e é o mesmo no ícone do app e na foto do WhatsApp oficial.

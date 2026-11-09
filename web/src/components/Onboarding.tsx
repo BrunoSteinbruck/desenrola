@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
+import { CITIES, neighborhoodsOf } from '../lib/options';
+import { ComboInput } from './fields';
 
-type Step = 'intro' | 'nome' | 'local';
-
-/** Primeira vez: uma caixinha por pergunta. Sem gastar crédito da API. */
+/** Primeira vez: nome e lugar numa tela só. Sem gastar crédito da API. */
 export function Onboarding({ initial, onDone }: { initial: Record<string, string>; onDone: () => void }) {
-  const [step, setStep] = useState<Step>('intro');
   const [name, setName] = useState(initial.user_name ?? '');
-
   const [city, setCity] = useState(initial.user_city || 'Porto Alegre');
   const [hood, setHood] = useState(initial.user_neighborhood ?? '');
   const [busy, setBusy] = useState(false);
@@ -16,7 +14,7 @@ export function Onboarding({ initial, onDone }: { initial: Record<string, string
   // o lugar que o mapa mostrou (nome corrigido): é isso que salva, não o texto digitado
   const [place, setPlace] = useState<{ city: string; neighborhood: string } | null>(null);
 
-  const firstName = name.trim().split(/\s+/)[0] ?? '';
+  const ready = !!name.trim() && !!city.trim() && !!hood.trim() && mapReady;
 
   const finish = async () => {
     if (busy) return;
@@ -38,98 +36,37 @@ export function Onboarding({ initial, onDone }: { initial: Record<string, string
 
   return (
     <section className="home">
-      {step === 'intro' && (
-        <div className="ob-box glass" key="intro">
-          <h1>Antes de começar</h1>
-          <p>
-            Eu aviso profissionais da tua região e te trago os orçamentos. Pra isso preciso saber teu nome e onde tu mora.
-          </p>
-          <button type="button" className="btn dark ob-cta" autoFocus onClick={() => setStep('nome')}>
-            Vamos lá
-          </button>
+      <form
+        className="ob-box"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (ready) void finish();
+        }}
+      >
+        <h1>Antes de começar</h1>
+        <p>Preciso disso pra achar profissionais perto de ti.</p>
+        <label className="field" htmlFor="ob-name">
+          Teu nome
+          <input id="ob-name" className="ob-input" value={name} autoFocus autoComplete="given-name" onChange={(e) => setName(e.target.value)} />
+          <span className="field-help">O profissional só recebe teu primeiro nome e teu celular depois que tu aprovar um orçamento.</span>
+        </label>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="ob-city">Cidade</label>
+            <ComboInput id="ob-city" value={city} options={CITIES} autoComplete="address-level2" onChange={setCity} />
+          </div>
+          <div className="field">
+            <label htmlFor="ob-hood">Bairro</label>
+            <ComboInput id="ob-hood" value={hood} options={neighborhoodsOf(city)} onChange={setHood} />
+          </div>
         </div>
-      )}
-
-      {step === 'nome' && (
-        <form
-          className="ob-box glass"
-          key="nome"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (name.trim()) setStep('local');
-          }}
-        >
-          <Progress at={1} />
-          <h1>Como posso te chamar?</h1>
-          <p>Quando tu aprovar um orçamento, o profissional recebe teu primeiro nome{firstName ? ` (${firstName})` : ''} e teu celular pra combinar o horário. Antes disso, ninguém vê.</p>
-          <label className="sr-only" htmlFor="ob-name">
-            Teu nome
-          </label>
-          <input
-            id="ob-name"
-            className="ob-input"
-            value={name}
-            autoFocus
-            autoComplete="given-name"
-            placeholder="Teu nome"
-            onChange={(e) => setName(e.target.value)}
-          />
-
-          <div className="ob-actions">
-            <button type="button" className="btn ghost" onClick={() => setStep('intro')}>
-              Voltar
-            </button>
-            <button type="submit" className="btn dark" disabled={!name.trim()}>
-              Continuar
-            </button>
-          </div>
-        </form>
-      )}
-
-      {step === 'local' && (
-        <form
-          className="ob-box glass"
-          key="local"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (city.trim() && hood.trim() && mapReady) void finish();
-          }}
-        >
-          <Progress at={2} />
-          <h1>Onde tu mora?</h1>
-          <p>Preciso saber pra pesquisar profissionais perto de ti. Informe tua cidade e o bairro.</p>
-          <div className="field-row">
-            <label className="field">
-              Cidade
-              <input className="ob-input" value={city} autoComplete="address-level2" onChange={(e) => setCity(e.target.value)} />
-            </label>
-            <label className="field">
-              Bairro
-              <input className="ob-input" value={hood} autoFocus placeholder="Ex.: Bom Fim" onChange={(e) => setHood(e.target.value)} />
-            </label>
-          </div>
-          <MiniMap city={city} hood={hood} onReady={setMapReady} onPlace={setPlace} />
-          {error && <p className="error-text">{error}</p>}
-          <div className="ob-actions">
-            <button type="button" className="btn ghost" onClick={() => setStep('nome')}>
-              Voltar
-            </button>
-            <button type="submit" className="btn dark" disabled={!city.trim() || !hood.trim() || !mapReady || busy}>
-              {busy ? 'Salvando…' : 'É aqui'}
-            </button>
-          </div>
-        </form>
-      )}
+        <MiniMap city={city} hood={hood} onReady={setMapReady} onPlace={setPlace} />
+        {error && <p className="error-text">{error}</p>}
+        <button type="submit" className="btn dark ob-submit" disabled={!ready || busy}>
+          {busy ? 'Salvando…' : 'Continuar'}
+        </button>
+      </form>
     </section>
-  );
-}
-
-function Progress({ at }: { at: 1 | 2 }) {
-  return (
-    <div className="ob-progress" aria-label={`Etapa ${at} de 2`}>
-      <span className={at >= 1 ? 'on' : ''} />
-      <span className={at >= 2 ? 'on' : ''} />
-    </div>
   );
 }
 
@@ -158,24 +95,24 @@ export function PlaceStep({
   return (
     <form
       ref={formRef}
-      className="ob-box glass"
+      className="ob-box"
       onSubmit={(e) => {
         e.preventDefault();
         if (ready && !busy) onConfirm((place?.city ?? city).trim(), (place?.neighborhood ?? hood).trim());
       }}
     >
       <div className="field-row">
-        <label className="field">
-          Cidade
-          <input className="ob-input" value={city} autoComplete="address-level2" placeholder="Ex.: Canoas" onChange={(e) => setCity(e.target.value)} />
-        </label>
-        <label className="field">
-          Bairro
-          <input className="ob-input" value={hood} placeholder="Ex.: Centro" onChange={(e) => setHood(e.target.value)} />
-        </label>
+        <div className="field">
+          <label htmlFor="place-city">Cidade</label>
+          <ComboInput id="place-city" value={city} options={CITIES} autoComplete="address-level2" onChange={setCity} />
+        </div>
+        <div className="field">
+          <label htmlFor="place-hood">Bairro</label>
+          <ComboInput id="place-hood" value={hood} options={neighborhoodsOf(city)} onChange={setHood} />
+        </div>
       </div>
       <MiniMap city={city} hood={hood} onReady={setMapReady} onPlace={setPlace} />
-      <button type="submit" className="btn dark ob-cta" disabled={!ready || busy}>
+      <button type="submit" className="btn dark ob-submit" disabled={!ready || busy}>
         {busy ? 'Procurando…' : 'É aqui'}
       </button>
     </form>
@@ -259,7 +196,7 @@ export function MiniMap({
   }, [query, onReady]);
 
   if (!query)
-    return <p className="ob-map-hint">{resolving ? 'Procurando o bairro…' : 'O mapa aparece aqui quando tu preencher o bairro.'}</p>;
+    return <p className="ob-map-hint">{resolving ? 'Procurando o bairro…' : 'O mapa aparece aqui quando tu escolher o bairro.'}</p>;
   const src = `https://maps.google.com/maps?q=${encodeURIComponent(query)}&z=14&hl=pt-BR&output=embed`;
   const link = `https://www.google.com/maps/search/${encodeURIComponent(query)}`;
   return (

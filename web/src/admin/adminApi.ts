@@ -84,12 +84,19 @@ export class AdminApiError extends Error {
   }
 }
 
-async function call<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`/api/admin${path}`, {
-    method,
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+const OFFLINE = 'O servidor não respondeu. Pode ser uma atualização; tento de novo sozinho.';
+
+export async function call<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/admin${path}`, {
+      method,
+      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new AdminApiError(OFFLINE, 0, 'offline');
+  }
   const text = await res.text();
   let data: unknown = null;
   if (text) {
@@ -101,7 +108,8 @@ async function call<T = unknown>(method: string, path: string, body?: unknown): 
   }
   if (!res.ok) {
     const d = (data ?? {}) as { error?: string; code?: string };
-    throw new AdminApiError(d.error || `Erro ${res.status}`, res.status, d.code);
+    if (!d.error && res.status >= 500) throw new AdminApiError(OFFLINE, res.status, 'offline');
+    throw new AdminApiError(d.error || 'Não consegui fazer isso agora. Tenta de novo.', res.status, d.code);
   }
   return data as T;
 }

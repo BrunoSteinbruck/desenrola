@@ -5,7 +5,9 @@ import { MiniMap, Onboarding } from './components/Onboarding';
 import { AdminGate } from './admin/AdminGate';
 import { ProSignup } from './pro/ProSignup';
 import { Login } from './components/Login';
-import { Composer, IconGear, IconMenu, IconPlus } from './components/ui';
+import { ComboInput } from './components/fields';
+import { Composer, IconGear, IconMenu, IconPhone, IconPlus, IconX } from './components/ui';
+import { CITIES, neighborhoodsOf } from './lib/options';
 
 const idFromHash = () => {
   const m = location.hash.match(/^#\/p\/(\d+)/);
@@ -217,7 +219,7 @@ function ClientApp() {
           </div>
           {settings?.is_guest && (
             <button type="button" className="nav-item wa-button" onClick={() => setPanel('login')}>
-              Entrar com celular
+              <IconPhone /> Entrar com celular
             </button>
           )}
           <button type="button" className="nav-item wa-button" onClick={() => setPanel('settings')}>
@@ -268,10 +270,10 @@ function ClientApp() {
       </div>
 
       {panel === 'login' && (
-        <Dialog title="Entrar" onClose={() => setPanel(null)}>
+        <Dialog title="Entrar com celular" onClose={() => setPanel(null)}>
           <Login
             inline
-            title="Entrar com celular"
+            hideTitle
             intro="Pra ver teus pedidos em qualquer aparelho. Te mando um código no WhatsApp, sem senha."
             onDone={(me) => {
               setSettings(me);
@@ -287,7 +289,6 @@ function ClientApp() {
             setPanel(null);
             api.getSettings().then(setSettings).catch(() => {});
           }}
-          onError={showError}
         />
       )}
 
@@ -300,30 +301,33 @@ function ClientApp() {
   );
 }
 
-function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+function Dialog({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     addEventListener('keydown', k);
     return () => removeEventListener('keydown', k);
   }, [onClose]);
   return (
-    <div className="overlay" onClick={onClose}>
-      <div className="dialog glass" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
-        <h2>{title}</h2>
-        {children}
-        <div className="actions" style={{ justifyContent: 'flex-end' }}>
-          <button type="button" className="btn" onClick={onClose}>
-            Fechar
+    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="dialog" role="dialog" aria-modal="true" aria-label={title}>
+        <header className="dialog-head">
+          <h2>{title}</h2>
+          <button type="button" className="icon-btn dialog-x" aria-label="Fechar" onClick={onClose}>
+            <IconX />
           </button>
-        </div>
+        </header>
+        <div className="dialog-body">{children}</div>
+        {footer && <footer className="dialog-foot">{footer}</footer>}
       </div>
     </div>
   );
 }
 
-function Settings({ onClose, onError }: { onClose: () => void; onError: (m: string) => void }) {
-  const [s, setS] = useState<Record<string, string>>({});
+function Settings({ onClose }: { onClose: () => void }) {
+  const [s, setS] = useState({ user_name: '', user_city: '', user_neighborhood: '', user_phone: '' });
   const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // mesmo mapa do onboarding: o lugar confirmado no mapa (nome corrigido) é o que salva
   const [mapReady, setMapReady] = useState(false);
   const [place, setPlace] = useState<{ city: string; neighborhood: string } | null>(null);
@@ -336,47 +340,68 @@ function Settings({ onClose, onError }: { onClose: () => void; onError: (m: stri
       })
       .catch(() => setLoaded(true));
   }, []);
-  const field = (key: string, label: string, type = 'text', placeholder = '') => (
-    <label className="field">
-      {label}
-      <input type={type} value={s[key] ?? ''} placeholder={placeholder} onChange={(e) => setS({ ...s, [key]: e.target.value })} />
-    </label>
-  );
+  const save = () => {
+    setBusy(true);
+    setError(null);
+    api
+      .putSettings({
+        user_name: s.user_name,
+        user_city: (place?.city ?? s.user_city).trim(),
+        user_neighborhood: (place?.neighborhood ?? s.user_neighborhood).trim(),
+      })
+      .then(onClose)
+      .catch((e) => {
+        setError(e instanceof Error && e.message ? e.message : 'Não consegui salvar.');
+        setBusy(false);
+      });
+  };
   return (
-    <Dialog title="Configurações" onClose={onClose}>
-      {field('user_name', 'Teu nome', 'text', 'Bruno')}
-      {s.user_phone ? (
-        <p className="note">
-          Celular {s.user_phone}: é teu login e vai pro profissional quando tu aprovar um orçamento.{' '}
-          <button type="button" className="link-btn" onClick={() => void api.logout().finally(() => location.reload())}>
-            Sair
-          </button>
-        </p>
-      ) : (
-        <p className="note">Tu ainda não entrou com o celular. Ele só é pedido quando tu for pedir orçamentos.</p>
-      )}
-      <div className="field-row">
-        {field('user_city', 'Cidade', 'text', 'Porto Alegre')}
-        {field('user_neighborhood', 'Bairro', 'text', 'Bom Fim')}
+    <Dialog
+      title="Configurações"
+      onClose={onClose}
+      footer={
+        <>
+          {error && <p className="error-text">{error}</p>}
+          <div className="dialog-actions">
+            <button type="button" className="btn" onClick={onClose}>
+              Cancelar
+            </button>
+            <button type="button" className="btn dark" disabled={busy || (!!s.user_neighborhood.trim() && !mapReady)} onClick={save}>
+              {busy ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
+        </>
+      }
+    >
+      <label className="field" htmlFor="set-name">
+        Teu nome
+        <input id="set-name" className="ob-input" autoComplete="given-name" value={s.user_name} onChange={(e) => setS({ ...s, user_name: e.target.value })} />
+      </label>
+      <div className="field">
+        <span>Celular</span>
+        {s.user_phone ? (
+          <div className="field-static split">
+            <span>{s.user_phone}</span>
+            <button type="button" className="link-btn" onClick={() => void api.logout().finally(() => location.reload())}>
+              Sair da conta
+            </button>
+          </div>
+        ) : (
+          <span className="field-help">Só é pedido quando tu for pedir orçamentos.</span>
+        )}
+        {s.user_phone && <span className="field-help">É teu login. O profissional só recebe quando tu aprovar um orçamento.</span>}
       </div>
-      {loaded && <MiniMap city={s.user_city ?? ''} hood={s.user_neighborhood ?? ''} onReady={setMapReady} onPlace={setPlace} />}
-      <button
-        type="button"
-        className="btn dark"
-        disabled={!!(s.user_neighborhood ?? '').trim() && !mapReady}
-        onClick={() =>
-          api
-            .putSettings({
-              user_name: s.user_name ?? '',
-              user_city: (place?.city ?? s.user_city ?? '').trim(),
-              user_neighborhood: (place?.neighborhood ?? s.user_neighborhood ?? '').trim(),
-            })
-            .then(onClose)
-            .catch((e) => onError(e instanceof Error && e.message ? e.message : 'Não consegui salvar.'))
-        }
-      >
-        Salvar
-      </button>
+      <div className="field-row">
+        <div className="field">
+          <label htmlFor="set-city">Cidade</label>
+          <ComboInput id="set-city" value={s.user_city} options={CITIES} autoComplete="address-level2" onChange={(user_city) => setS({ ...s, user_city })} />
+        </div>
+        <div className="field">
+          <label htmlFor="set-hood">Bairro</label>
+          <ComboInput id="set-hood" value={s.user_neighborhood} options={neighborhoodsOf(s.user_city)} onChange={(user_neighborhood) => setS({ ...s, user_neighborhood })} />
+        </div>
+      </div>
+      {loaded && <MiniMap city={s.user_city} hood={s.user_neighborhood} onReady={setMapReady} onPlace={setPlace} />}
     </Dialog>
   );
 }

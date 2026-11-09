@@ -9,7 +9,7 @@ import { bus } from '../events.ts';
 import { toE164BR } from '../services/phone.ts';
 import { ProviderError, setProviderStatus, splitList, upsertProviderFromAdmin } from './providers.ts';
 
-export const PRO_CONSENT_TEXT = 'Quero receber pedidos de serviço do Desenrola pelo WhatsApp. Posso parar quando quiser mandando SAIR.';
+export const PRO_CONSENT_TEXT = 'Quero receber pedidos de serviço do Desenrola pelo WhatsApp.';
 
 const prod = () => process.env.NODE_ENV === 'production';
 

@@ -1,27 +1,28 @@
 import { useState, type FormEvent } from 'react';
 import { BrandMark } from '../App';
+import { CodeInput, CoverageFields, coverageOk, MultiSelect, PhoneInput, phoneOk, type Coverage } from '../components/fields';
+import { IconCheck } from '../components/ui';
+import { SERVICES } from '../lib/options';
 
-/* /profissional: o profissional se cadastra sozinho. 3 caixinhas: o que faz e onde → celular e aceite → código. */
-
-const SERVICES = [
-  'eletricista', 'encanador', 'chaveiro', 'pintor', 'pedreiro', 'marceneiro', 'montador de móveis',
-  'técnico em ar-condicionado', 'técnico em máquina de lavar', 'técnico de eletrodomésticos', 'vidraceiro', 'jardineiro', 'diarista',
-];
+/* /profissional: o profissional se cadastra sozinho. Uma tela com tudo → código → pronto. */
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`/api/pro${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  let res: Response;
+  try {
+    res = await fetch(`/api/pro${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  } catch {
+    throw new Error('Não consegui agora. Tenta de novo.');
+  }
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error((data as { error?: string } | null)?.error ?? 'Não consegui agora. Tenta de novo.');
   return data as T;
 }
 
 export function ProSignup() {
-  const [step, setStep] = useState<'about' | 'phone' | 'code' | 'done'>('about');
+  const [step, setStep] = useState<'form' | 'code' | 'done'>('form');
   const [name, setName] = useState('');
   const [services, setServices] = useState<string[]>([]);
-  const [other, setOther] = useState('');
-  const [city, setCity] = useState('Porto Alegre');
-  const [hoods, setHoods] = useState('');
+  const [coverage, setCoverage] = useState<Coverage>({ city: 'Porto Alegre', neighborhoods: null });
   const [phone, setPhone] = useState('');
   const [consent, setConsent] = useState(false);
   const [code, setCode] = useState('');
@@ -29,9 +30,7 @@ export function ProSignup() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const allServices = [...services, ...other.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)];
-  const phoneOk = phone.replace(/\D/g, '').replace(/^55/, '').length >= 10;
-  const toggle = (s: string) => setServices((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]));
+  const ready = !!name.trim() && services.length > 0 && coverageOk(coverage) && phoneOk(phone) && consent;
 
   const run = async (fn: () => Promise<void>) => {
     if (busy) return;
@@ -48,6 +47,7 @@ export function ProSignup() {
 
   const sendCode = (e?: FormEvent) => {
     e?.preventDefault();
+    if (!ready) return;
     void run(async () => {
       const r = await post<{ dev_code?: string }>('/request-code', { phone });
       setDevCode(r.dev_code ?? null);
@@ -56,6 +56,21 @@ export function ProSignup() {
     });
   };
 
+  const register = (value: string) => {
+    if (value.length !== 6) return;
+    void run(async () => {
+      try {
+        await post('/register', { name, phone, code: value, consent, categories: services, city: coverage.city, neighborhoods: coverage.neighborhoods ?? [] });
+        setStep('done');
+      } catch (e) {
+        setCode('');
+        throw e;
+      }
+    });
+  };
+
+  const where = coverage.neighborhoods?.length ? coverage.neighborhoods.join(', ') : coverage.city;
+
   return (
     <div className="pro">
       <header className="pro-head">
@@ -63,77 +78,34 @@ export function ProSignup() {
           <BrandMark />
           desenrola
         </a>
-        <span className="label-mono">Para profissionais</span>
+        <span className="field-help">Para profissionais</span>
       </header>
       <section className="home">
-        {step === 'about' && (
-          <form
-            className="ob-box"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (name.trim() && allServices.length && city.trim()) setStep('phone');
-            }}
-          >
-            <h1>Receba pedidos da tua região</h1>
-            <p>Quando alguém perto de ti precisar do teu serviço, a gente te avisa no WhatsApp. Tu vê o pedido e passa o orçamento se quiser.</p>
-            <label className="field">
-              Teu nome ou da tua empresa
-              <input className="ob-input" value={name} autoFocus onChange={(e) => setName(e.target.value)} />
-            </label>
-            <fieldset className="pro-services">
-              <legend>O que tu faz</legend>
-              <div className="chips">
-                {SERVICES.map((s) => (
-                  <button key={s} type="button" className={`chip${services.includes(s) ? ' on' : ''}`} aria-pressed={services.includes(s)} onClick={() => toggle(s)}>
-                    {s}
-                  </button>
-                ))}
-              </div>
-              <label className="sr-only" htmlFor="pro-other">
-                Outro serviço
-              </label>
-              <input id="pro-other" className="ob-input" placeholder="Outro (separa por vírgula)" value={other} onChange={(e) => setOther(e.target.value)} />
-            </fieldset>
-            <div className="field-row">
-              <label className="field">
-                Cidade
-                <input className="ob-input" value={city} onChange={(e) => setCity(e.target.value)} />
-              </label>
-              <label className="field">
-                Bairros que atende
-                <input className="ob-input" placeholder="Vazio = cidade toda" value={hoods} onChange={(e) => setHoods(e.target.value)} />
-              </label>
-            </div>
-            <div className="ob-actions">
-              <span />
-              <button type="submit" className="btn dark" disabled={!name.trim() || !allServices.length || !city.trim()}>
-                Continuar
-              </button>
-            </div>
-          </form>
-        )}
-
-        {step === 'phone' && (
+        {step === 'form' && (
           <form className="ob-box" onSubmit={sendCode}>
-            <h1>Teu WhatsApp</h1>
-            <p>É por ele que chegam os pedidos. Te mando um código pra confirmar que o número é teu.</p>
-            <label className="sr-only" htmlFor="pro-phone">
-              Celular com DDD
+            <h1>Receba pedidos da tua região</h1>
+            <label className="field" htmlFor="pro-name">
+              Teu nome ou da tua empresa
+              <input id="pro-name" className="ob-input" value={name} autoFocus autoComplete="organization" onChange={(e) => setName(e.target.value)} />
             </label>
-            <input id="pro-phone" className="ob-input" type="tel" autoFocus autoComplete="tel-national" placeholder="Celular com DDD" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <div className="field">
+              <label htmlFor="pro-services">O que tu faz</label>
+              <MultiSelect id="pro-services" allowAdd lowercase value={services} options={SERVICES} placeholder="Selecionar serviços" searchPlaceholder="Buscar serviço" onChange={setServices} />
+            </div>
+            <CoverageFields idPrefix="pro" value={coverage} onChange={setCoverage} />
+            <label className="field" htmlFor="pro-phone">
+              Celular com WhatsApp
+              <PhoneInput id="pro-phone" value={phone} onChange={setPhone} />
+              <span className="field-help">É por ele que chegam os pedidos. Te mando um código pra confirmar.</span>
+            </label>
             <label className="consent">
               <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-              <span>Quero receber pedidos de serviço do Desenrola pelo WhatsApp. Posso parar quando quiser mandando SAIR.</span>
+              <span>Quero receber pedidos de serviço do Desenrola pelo WhatsApp.</span>
             </label>
             {error && <p className="error-text">{error}</p>}
-            <div className="ob-actions">
-              <button type="button" className="btn ghost" onClick={() => setStep('about')}>
-                Voltar
-              </button>
-              <button type="submit" className="btn dark" disabled={busy || !phoneOk || !consent}>
-                {busy ? 'Enviando…' : 'Receber código'}
-              </button>
-            </div>
+            <button type="submit" className="btn dark ob-submit" disabled={busy || !ready}>
+              {busy ? 'Enviando…' : 'Receber código'}
+            </button>
           </form>
         )}
 
@@ -142,52 +114,39 @@ export function ProSignup() {
             className="ob-box"
             onSubmit={(e) => {
               e.preventDefault();
-              void run(async () => {
-                await post('/register', { name, phone, code, consent, categories: allServices, city, neighborhoods: hoods });
-                setStep('done');
-              });
+              register(code);
             }}
           >
             <h1>Digita o código</h1>
-            <p>Mandei um código de 6 números pro WhatsApp do {phone}.</p>
+            <p>Mandei 6 números pro WhatsApp do {phone}.</p>
             {devCode && <p className="note">Modo de teste (sem Twilio): o código é {devCode}.</p>}
             <label className="sr-only" htmlFor="pro-code">
               Código
             </label>
-            <input
-              id="pro-code"
-              className="ob-input code-input"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              autoFocus
-              maxLength={6}
-              placeholder="000000"
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            />
+            <CodeInput id="pro-code" value={code} onChange={setCode} onComplete={register} />
             {error && <p className="error-text">{error}</p>}
-            <div className="ob-actions">
-              <button type="button" className="btn ghost" onClick={() => setStep('phone')}>
-                Trocar número
+            <button type="submit" className="btn dark ob-submit" disabled={busy || code.length !== 6}>
+              {busy ? 'Cadastrando…' : 'Cadastrar'}
+            </button>
+            <div className="ob-links">
+              <button type="button" className="link-btn" onClick={() => setStep('form')}>
+                Corrigir dados
               </button>
-              <span style={{ display: 'flex', gap: 8 }}>
-                <button type="button" className="btn" disabled={busy} onClick={() => sendCode()}>
-                  Reenviar
-                </button>
-                <button type="submit" className="btn dark" disabled={busy || code.length !== 6}>
-                  {busy ? 'Cadastrando…' : 'Cadastrar'}
-                </button>
-              </span>
+              <button type="button" className="link-btn" disabled={busy} onClick={() => sendCode()}>
+                Mandar de novo
+              </button>
             </div>
           </form>
         )}
 
         {step === 'done' && (
-          <div className="ob-box">
-            <h1>Pronto, {name.split(/\s+/)[0]}!</h1>
+          <div className="ob-box pro-done">
+            <span className="pro-check">
+              <IconCheck />
+            </span>
+            <h1>Pronto, {name.trim().split(/\s+/)[0]}!</h1>
             <p>
-              Quando aparecer um pedido de {allServices.join(', ')} {hoods.trim() ? `em ${hoods}` : `em ${city}`}, te aviso no WhatsApp. Tu toca em "Ver
-              detalhes" e passa o orçamento. Pra parar de receber, é só mandar SAIR.
+              Quando aparecer um pedido de {services.join(', ')} em {where}, te aviso no WhatsApp. Pra parar de receber, é só mandar SAIR.
             </p>
           </div>
         )}
