@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import { CITIES, neighborhoodsOf } from '../lib/options';
-import { ComboInput } from './fields';
+import { CITIES } from '../lib/options';
+import { ComboInput, NeighborhoodInput } from './fields';
 
 /** Primeira vez: nome e lugar numa tela só. Sem gastar crédito da API. */
 export function Onboarding({ initial, onDone }: { initial: Record<string, string>; onDone: () => void }) {
@@ -57,7 +57,7 @@ export function Onboarding({ initial, onDone }: { initial: Record<string, string
           </div>
           <div className="field">
             <label htmlFor="ob-hood">Bairro</label>
-            <ComboInput id="ob-hood" value={hood} options={neighborhoodsOf(city)} onChange={setHood} />
+            <NeighborhoodInput id="ob-hood" city={city} value={hood} onChange={setHood} />
           </div>
         </div>
         <MiniMap city={city} hood={hood} onReady={setMapReady} onPlace={setPlace} />
@@ -108,7 +108,7 @@ export function PlaceStep({
         </div>
         <div className="field">
           <label htmlFor="place-hood">Bairro</label>
-          <ComboInput id="place-hood" value={hood} options={neighborhoodsOf(city)} onChange={setHood} />
+          <NeighborhoodInput id="place-hood" city={city} value={hood} onChange={setHood} />
         </div>
       </div>
       <MiniMap city={city} hood={hood} onReady={setMapReady} onPlace={setPlace} />

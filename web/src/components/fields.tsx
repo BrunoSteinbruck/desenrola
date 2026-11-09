@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { api } from '../api';
 import { CITIES, fold, neighborhoodsOf } from '../lib/options';
 import { IconCheck, IconChevron, IconSearch } from './ui';
 
@@ -148,7 +149,11 @@ function Options({ id, items, active, setActive, listRef, onPick, selected, empt
 
 // ---------- seleção simples, com digitação livre ----------
 
-export function ComboInput({ id, value, onChange, options, placeholder, autoFocus, autoComplete = 'off' }: {
+/**
+ * Campo de texto livre que sugere enquanto a pessoa escreve. Com `browse`, vira caixa de seleção:
+ * tem seta e abre a lista inteira (pra listas curtas, onde vale ver todas as opções).
+ */
+export function ComboInput({ id, value, onChange, options, placeholder, autoFocus, autoComplete = 'off', browse = false }: {
   id?: string;
   value: string;
   onChange: (v: string) => void;
@@ -156,6 +161,7 @@ export function ComboInput({ id, value, onChange, options, placeholder, autoFocu
   placeholder?: string;
   autoFocus?: boolean;
   autoComplete?: string;
+  browse?: boolean;
 }) {
   const auto = useId();
   const listId = `${id ?? auto}-list`;
@@ -164,8 +170,12 @@ export function ComboInput({ id, value, onChange, options, placeholder, autoFocu
     const q = fold(value);
     const exact = options.some((o) => fold(o) === q);
     // com o valor já escolhido, abre a lista inteira pra poder trocar
-    return (exact ? options : options.filter((o) => fold(o).includes(q))).slice(0, 80).map((v) => ({ value: v }));
-  }, [value, options]);
+    if (browse) return (exact ? options : options.filter((o) => fold(o).includes(q))).slice(0, 80).map((v) => ({ value: v }));
+    if (!q || exact) return [];
+    const hits = options.filter((o) => fold(o).includes(q));
+    // quem começa com o que foi digitado vem primeiro
+    return [...hits.filter((o) => fold(o).startsWith(q)), ...hits.filter((o) => !fold(o).startsWith(q))].slice(0, 8).map((v) => ({ value: v }));
+  }, [value, options, browse]);
   const pick = (it: Item) => {
     onChange(it.value);
     setOpen(false);
@@ -196,12 +206,35 @@ export function ComboInput({ id, value, onChange, options, placeholder, autoFocu
         onBlur={() => setOpen(false)}
         onKeyDown={(e) => onKey(e, setOpen)}
       />
-      <span className="combo-caret" aria-hidden="true">
-        <IconChevron />
-      </span>
+      {browse && (
+        <span className="combo-caret" aria-hidden="true">
+          <IconChevron />
+        </span>
+      )}
       {show && <Options id={listId} items={items} active={active} setActive={setActive} listRef={listRef} onPick={pick} />}
     </div>
   );
+}
+
+/** Bairro: texto livre, com sugestões dos bairros da cidade (buscados uma vez por cidade). */
+export function NeighborhoodInput({ id, city, value, onChange }: { id?: string; city: string; value: string; onChange: (v: string) => void }) {
+  const known = neighborhoodsOf(city);
+  const [fetched, setFetched] = useState<string[]>([]);
+  const local = known.length > 0;
+  useEffect(() => {
+    setFetched([]);
+    const c = city.trim();
+    if (local || c.length < 3) return;
+    let stale = false;
+    const t = setTimeout(() => {
+      api.neighborhoods(c).then((r) => !stale && setFetched(r.names)).catch(() => {});
+    }, 500);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [city, local]);
+  return <ComboInput id={id} value={value} options={local ? known : fetched} onChange={onChange} />;
 }
 
 // ---------- seleção múltipla ----------

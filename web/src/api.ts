@@ -139,6 +139,7 @@ export const api = {
     call<{ claude: boolean; places: boolean; transcription: boolean; payments: boolean; whatsappOficial: 'twilio' | 'stub' }>('GET', '/health'),
   normalizePlace: (city: string, neighborhood: string) =>
     call<{ city: string; neighborhood: string; found: boolean }>('POST', '/geo/normalize', { city, neighborhood }),
+  neighborhoods: (city: string) => call<{ names: string[] }>('GET', `/geo/neighborhoods?city=${encodeURIComponent(city)}`),
   getSettings: () => call<Settings>('GET', '/settings'),
   requestCode: (phone: string) => call<{ ok: true; dev_code?: string }>('POST', '/auth/request-code', { phone }),
   verifyCode: (phone: string, code: string, consent: boolean) => call<Settings>('POST', '/auth/verify', { phone, code, consent }),

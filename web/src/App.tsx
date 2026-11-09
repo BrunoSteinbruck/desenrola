@@ -5,9 +5,9 @@ import { MiniMap, Onboarding } from './components/Onboarding';
 import { AdminGate } from './admin/AdminGate';
 import { ProSignup } from './pro/ProSignup';
 import { Login } from './components/Login';
-import { ComboInput, phoneDigits, phoneOk } from './components/fields';
+import { ComboInput, NeighborhoodInput, phoneDigits, phoneOk } from './components/fields';
 import { Composer, IconGear, IconMenu, IconPhone, IconPlus, IconX } from './components/ui';
-import { CITIES, neighborhoodsOf } from './lib/options';
+import { CITIES } from './lib/options';
 
 const idFromHash = () => {
   const m = location.hash.match(/^#\/p\/(\d+)/);
@@ -463,7 +463,7 @@ function Settings({ onClose, onLoggedIn }: { onClose: () => void; onLoggedIn: (m
         </div>
         <div className="field">
           <label htmlFor="set-hood">Bairro</label>
-          <ComboInput id="set-hood" value={s.user_neighborhood} options={neighborhoodsOf(s.user_city)} onChange={(user_neighborhood) => setS({ ...s, user_neighborhood })} />
+          <NeighborhoodInput id="set-hood" city={s.user_city} value={s.user_neighborhood} onChange={(user_neighborhood) => setS({ ...s, user_neighborhood })} />
         </div>
       </div>
       {loaded && <MiniMap city={s.user_city} hood={s.user_neighborhood} onReady={setMapReady} onPlace={setPlace} />}

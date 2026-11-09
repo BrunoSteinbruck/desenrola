@@ -129,7 +129,7 @@ export function RecruitingTab({ onPromoted, notify, serviceOptions }: { onPromot
             <label className="sr-only" htmlFor="rec-cat">
               Filtrar por serviço
             </label>
-            <ComboInput id="rec-cat" placeholder="Todos os serviços" value={category} options={services} onChange={setCategory} />
+            <ComboInput id="rec-cat" browse placeholder="Todos os serviços" value={category} options={services} onChange={setCategory} />
           </div>
         </div>
         {error && <p className="error-text">{error}</p>}

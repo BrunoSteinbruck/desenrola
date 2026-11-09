@@ -21,7 +21,7 @@ import { registerProRoutes } from './marketplace/pro-routes.ts';
 import { startScheduler } from './services/scheduler.ts';
 import { hasPlaces } from './services/places.ts';
 import { toE164BR } from './services/phone.ts';
-import { normalizePlace } from './services/geo.ts';
+import { neighborhoodsOfCity, normalizePlace } from './services/geo.ts';
 import { hasClaude } from './agents/claude.ts';
 import { channel, onConsentChange, onInboundMessage, registerWhatsAppRoutes, startChannel } from './channel/index.ts';
 import { registerSiteGate } from './lib/gate.ts';
@@ -187,6 +187,12 @@ export async function buildApp() {
   app.post('/api/geo/normalize', async (req) => {
     const b = z.object({ city: z.string().trim().max(100), neighborhood: z.string().trim().max(100) }).parse(req.body ?? {});
     return normalizePlace(b.city, b.neighborhood);
+  });
+
+  // Sugestões do campo Bairro
+  app.get('/api/geo/neighborhoods', async (req) => {
+    const q = z.object({ city: z.string().trim().min(2).max(60) }).parse(req.query);
+    return { names: await neighborhoodsOfCity(q.city) };
   });
 
   app.get('/api/settings', async (req) => clientView(req.client!));
