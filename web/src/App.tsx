@@ -351,11 +351,7 @@ function ClientApp() {
                 placeholder="Ex.: a tomada da cozinha está faiscando quando ligo a air fryer"
                 onSend={start}
               />
-              <p className="hint">
-                {noKey
-                  ? 'Falta a ANTHROPIC_API_KEY no arquivo .env — sem ela eu não consigo responder.'
-                  : 'Eu aviso profissionais da tua região e te trago os orçamentos. Tu compara e escolhe.'}
-              </p>
+              {noKey && <p className="hint">Falta a ANTHROPIC_API_KEY no arquivo .env — sem ela eu não consigo responder.</p>}
             </section>
           ) : detail ? (
             <Conversation
