@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, ApiError, type Settings } from '../api';
 import { CodeInput, PhoneInput, phoneOk } from './fields';
 
@@ -10,10 +10,13 @@ export function Login({
   onDone,
   inline = false,
   title = 'Entrar no Desenrola',
-  intro = 'Teu celular é teu login. Te mando um código no WhatsApp, sem senha.',
+  intro = 'Te mando um código no WhatsApp.',
   submitLabel = 'Entrar',
   askName = false,
   hideTitle = false,
+  compact = false,
+  sendCodeSignal = 0,
+  onChange,
 }: {
   onDone: (me: Settings) => void;
   inline?: boolean;
@@ -24,6 +27,12 @@ export function Login({
   askName?: boolean;
   /** quem envolve já mostra o título */
   hideTitle?: boolean;
+  /** dentro de outro formulário: sem títulos nem foco automático, e o resto só aparece depois do número */
+  compact?: boolean;
+  /** quem envolve pede o código de fora: cada aumento desse número envia */
+  sendCodeSignal?: number;
+  /** avisa quem envolve o que já foi digitado e em que etapa está */
+  onChange?: (state: { phone: string; step: 'phone' | 'code' }) => void;
 }) {
   const [name, setName] = useState('');
   const [step, setStep] = useState<'phone' | 'code'>('phone');
@@ -51,6 +60,15 @@ export function Login({
     }
   };
 
+  const signal = useRef(sendCodeSignal);
+  useEffect(() => {
+    if (sendCodeSignal === signal.current) return;
+    signal.current = sendCodeSignal;
+    void requestCode();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendCodeSignal]);
+  useEffect(() => onChange?.({ phone, step }), [phone, step, onChange]);
+
   const verify = async (value: string) => {
     if (busy || value.length !== 6) return;
     setBusy(true);
@@ -74,7 +92,7 @@ export function Login({
       {step === 'phone' ? (
         <form className={box} onSubmit={requestCode}>
           {!hideTitle && <H>{title}</H>}
-          <p>{intro}</p>
+          {intro && <p>{intro}</p>}
           {askName && (
             <label className="field" htmlFor="login-name">
               Teu nome
@@ -83,16 +101,20 @@ export function Login({
           )}
           <label className="field" htmlFor="login-phone">
             Celular com WhatsApp
-            <PhoneInput id="login-phone" autoFocus={!askName} value={phone} onChange={setPhone} />
+            <PhoneInput id="login-phone" autoFocus={!askName && !compact} value={phone} onChange={setPhone} />
           </label>
-          <label className="consent">
-            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-            <span>Quero receber pelo WhatsApp os avisos dos meus pedidos (orçamentos e perguntas dos profissionais).</span>
-          </label>
-          {error && <p className="error-text">{error}</p>}
-          <button type="submit" className="btn dark ob-submit" disabled={busy || !phoneOk(phone) || (askName && !name.trim())}>
-            {busy ? 'Enviando…' : 'Receber código'}
-          </button>
+          {(!compact || phoneOk(phone)) && (
+            <>
+              <label className="consent">
+                <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+                <span>Quero receber pelo WhatsApp os avisos dos meus pedidos (orçamentos e perguntas dos profissionais).</span>
+              </label>
+              {error && <p className="error-text">{error}</p>}
+              <button type="submit" className="btn dark ob-submit" disabled={busy || !phoneOk(phone) || (askName && !name.trim())}>
+                {busy ? 'Enviando…' : 'Receber código'}
+              </button>
+            </>
+          )}
         </form>
       ) : (
         <form
@@ -102,7 +124,7 @@ export function Login({
             void verify(code);
           }}
         >
-          <H>Digita o código</H>
+          {!compact && <H>Digita o código</H>}
           <p>Mandei 6 números pro WhatsApp do {phone}.</p>
           {devCode && <p className="note">Modo de teste (sem Twilio): o código é {devCode}.</p>}
           <label className="sr-only" htmlFor="login-code">

@@ -5,7 +5,7 @@ import { MiniMap, Onboarding } from './components/Onboarding';
 import { AdminGate } from './admin/AdminGate';
 import { ProSignup } from './pro/ProSignup';
 import { Login } from './components/Login';
-import { ComboInput } from './components/fields';
+import { ComboInput, phoneDigits, phoneOk } from './components/fields';
 import { Composer, IconGear, IconMenu, IconPhone, IconPlus, IconX } from './components/ui';
 import { CITIES, neighborhoodsOf } from './lib/options';
 
@@ -155,6 +155,13 @@ function ClientApp() {
     });
   }, [loadList, loadDetail, auth]);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false);
+    addEventListener('keydown', onKey);
+    return () => removeEventListener('keydown', onKey);
+  }, [menuOpen]);
+
   const go = (id: number | null) => {
     location.hash = id == null ? '' : `#/p/${id}`;
     setMenuOpen(false);
@@ -194,18 +201,15 @@ function ClientApp() {
   return (
     <>
       {backdrop}
-      <div className="app">
+      <div className={`app${menuOpen ? ' menu-open' : ''}`}>
         <nav aria-label="Histórico" className={`sidebar glass${menuOpen ? ' open' : ''}`}>
           <div className="brand-row">
             <span className="brand">
               <BrandMark />
               desenrola
             </span>
-            <button type="button" className="icon-btn menu-btn" aria-label="Abrir menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((o) => !o)}>
-              <IconMenu />
-            </button>
           </div>
-          <button type="button" className={`nav-item${currentId == null ? ' active' : ''}`} onClick={() => go(null)}>
+          <button type="button" className={`nav-item desk-only${currentId == null ? ' active' : ''}`} onClick={() => go(null)}>
             <IconPlus /> Novo problema
           </button>
           {requests.length > 0 && <p className="nav-label">Recentes</p>}
@@ -218,16 +222,38 @@ function ClientApp() {
             ))}
           </div>
           {settings?.is_guest && (
-            <button type="button" className="nav-item wa-button" onClick={() => setPanel('login')}>
+            <button type="button" className="nav-item wa-button nav-login" onClick={() => { setMenuOpen(false); setPanel('login'); }}>
               <IconPhone /> Entrar com celular
             </button>
           )}
-          <button type="button" className="nav-item wa-button" onClick={() => setPanel('settings')}>
+          <button type="button" className="nav-item wa-button desk-only" onClick={() => setPanel('settings')}>
             <IconGear /> Configurações
           </button>
+          {/* no celular, os dois comandos ficam fixos embaixo do painel */}
+          <div className="drawer-bar">
+            <button type="button" className="round-btn" aria-label="Configurações" onClick={() => { setMenuOpen(false); setPanel('settings'); }}>
+              <IconGear />
+            </button>
+            <button type="button" className="new-pill" onClick={() => go(null)}>
+              <IconPlus /> Novo problema
+            </button>
+          </div>
         </nav>
 
         <main className="main">
+          <div className="mobile-bar">
+            <button type="button" className="round-btn" aria-label={menuOpen ? 'Fechar histórico' : 'Abrir histórico'} aria-expanded={menuOpen} onClick={() => setMenuOpen((o) => !o)}>
+              <IconMenu />
+            </button>
+            {currentId == null && (
+              <span className="brand mobile-brand">
+                <BrandMark size={26} />
+                desenrola
+              </span>
+            )}
+          </div>
+          {/* com o painel aberto, tocar na conversa fecha */}
+          {menuOpen && <button type="button" className="main-scrim" aria-label="Fechar histórico" onClick={() => setMenuOpen(false)} />}
           {currentId == null && settings && !settings.is_guest && !settings.onboarding_done ? (
             <Onboarding
               initial={{ user_name: settings.user_name, user_city: settings.user_city, user_neighborhood: settings.user_neighborhood }}
@@ -274,7 +300,7 @@ function ClientApp() {
           <Login
             inline
             hideTitle
-            intro="Pra ver teus pedidos em qualquer aparelho. Te mando um código no WhatsApp, sem senha."
+            intro=""
             onDone={(me) => {
               setSettings(me);
               setPanel(null);
@@ -288,6 +314,10 @@ function ClientApp() {
           onClose={() => {
             setPanel(null);
             api.getSettings().then(setSettings).catch(() => {});
+          }}
+          onLoggedIn={(me) => {
+            setSettings(me);
+            void loadList();
           }}
         />
       )}
@@ -323,7 +353,7 @@ function Dialog({ title, onClose, children, footer }: { title: string; onClose: 
   );
 }
 
-function Settings({ onClose }: { onClose: () => void }) {
+function Settings({ onClose, onLoggedIn }: { onClose: () => void; onLoggedIn: (me: SettingsData) => void }) {
   const [s, setS] = useState({ user_name: '', user_city: '', user_neighborhood: '', user_phone: '' });
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -340,14 +370,28 @@ function Settings({ onClose }: { onClose: () => void }) {
       })
       .catch(() => setLoaded(true));
   }, []);
-  const save = () => {
+  // número digitado e ainda sem confirmar: o Salvar pede o código e salva tudo depois de confirmar
+  const [login, setLogin] = useState<{ phone: string; step: 'phone' | 'code' }>({ phone: '', step: 'phone' });
+  const [sendCode, setSendCode] = useState(0);
+  const saveAfterLogin = useRef(false);
+  const save = (values = s) => {
+    if (!values.user_phone && login.phone) {
+      if (!phoneOk(login.phone)) {
+        setError(phoneDigits(login.phone).length ? 'Completa o celular ou apaga o número.' : null);
+        return;
+      }
+      saveAfterLogin.current = true;
+      setError(null);
+      setSendCode((n) => n + 1);
+      return;
+    }
     setBusy(true);
     setError(null);
     api
       .putSettings({
-        user_name: s.user_name,
-        user_city: (place?.city ?? s.user_city).trim(),
-        user_neighborhood: (place?.neighborhood ?? s.user_neighborhood).trim(),
+        user_name: values.user_name,
+        user_city: (place?.city ?? values.user_city).trim(),
+        user_neighborhood: (place?.neighborhood ?? values.user_neighborhood).trim(),
       })
       .then(onClose)
       .catch((e) => {
@@ -366,7 +410,7 @@ function Settings({ onClose }: { onClose: () => void }) {
             <button type="button" className="btn" onClick={onClose}>
               Cancelar
             </button>
-            <button type="button" className="btn dark" disabled={busy || (!!s.user_neighborhood.trim() && !mapReady)} onClick={save}>
+            <button type="button" className="btn dark" disabled={busy || login.step === 'code' || (!!s.user_neighborhood.trim() && !mapReady)} onClick={() => save()}>
               {busy ? 'Salvando…' : 'Salvar'}
             </button>
           </div>
@@ -377,20 +421,41 @@ function Settings({ onClose }: { onClose: () => void }) {
         Teu nome
         <input id="set-name" className="ob-input" autoComplete="given-name" value={s.user_name} onChange={(e) => setS({ ...s, user_name: e.target.value })} />
       </label>
-      <div className="field">
-        <span>Celular</span>
-        {s.user_phone ? (
+      {s.user_phone ? (
+        <div className="field">
+          <span>Celular com WhatsApp</span>
           <div className="field-static split">
             <span>{s.user_phone}</span>
             <button type="button" className="link-btn" onClick={() => void api.logout().finally(() => location.reload())}>
               Sair da conta
             </button>
           </div>
-        ) : (
-          <span className="field-help">Só é pedido quando tu for pedir orçamentos.</span>
-        )}
-        {s.user_phone && <span className="field-help">É teu login. O profissional só recebe quando tu aprovar um orçamento.</span>}
-      </div>
+          <span className="field-help">O profissional só recebe quando tu aprovar um orçamento.</span>
+        </div>
+      ) : (
+        <Login
+          inline
+          compact
+          hideTitle
+          intro=""
+          submitLabel="Confirmar"
+          sendCodeSignal={sendCode}
+          onChange={setLogin}
+          onDone={(me) => {
+            // entrou na conta desse número: o que a pessoa já digitou aqui continua valendo
+            const next = {
+              user_name: s.user_name || me.user_name,
+              user_city: s.user_city || me.user_city,
+              user_neighborhood: s.user_neighborhood || me.user_neighborhood,
+              user_phone: me.user_phone ? formatPhone(me.user_phone) : '',
+            };
+            setS(next);
+            setLogin({ phone: '', step: 'phone' });
+            onLoggedIn(me);
+            if (saveAfterLogin.current) save(next);
+          }}
+        />
+      )}
       <div className="field-row">
         <div className="field">
           <label htmlFor="set-city">Cidade</label>

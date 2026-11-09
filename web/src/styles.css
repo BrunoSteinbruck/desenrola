@@ -74,7 +74,7 @@ a { color: var(--blue); }
 /* Layout */
 .app { position: relative; z-index: 1; height: 100%; display: flex; gap: 12px; padding: 12px; }
 .sidebar {
-  flex: 0 0 264px; border-radius: var(--radius-panel); padding: 14px 10px;
+  flex: 0 0 264px; min-width: 0; border-radius: var(--radius-panel); padding: 14px 10px;
   display: flex; flex-direction: column; gap: 2px; min-height: 0;
   box-shadow: none;
 }
@@ -309,19 +309,51 @@ textarea.ob-input { height: auto; padding: 9px 12px; }
 /* iPhone dá zoom em campo com fonte menor que 16px */
 @media (max-width: 760px) { .ob-input, .ms-trigger, .ms-search input, .adm-search input { font-size: 16px; } }
 
-.menu-btn { display: none; }
+.mobile-bar, .drawer-bar, .main-scrim { display: none; }
+
+/* Celular: a conversa ocupa a tela toda e o histórico fica por baixo, à esquerda.
+   O botão do canto empurra a conversa pro lado e mostra o painel. */
+.round-btn { flex: none; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(14, 22, 38, 0.05); }
+.new-pill { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 18px; border: 0; border-radius: var(--radius-pill); background: var(--navy); color: #fff; font-size: 15px; font-weight: 500; white-space: nowrap; }
 
 @media (max-width: 760px) {
-  .app { flex-direction: column; padding: 8px; gap: 8px; }
-  .sidebar { flex: 0 0 auto; max-height: 60px; overflow: hidden; flex-direction: row; align-items: center; padding: 8px; }
-  .sidebar.open { max-height: 70vh; flex-direction: column; align-items: stretch; }
-  .sidebar:not(.open) > :not(.brand-row) { display: none; }
-  .brand-row { display: flex; align-items: center; justify-content: space-between; width: 100%; }
-  .brand { padding-bottom: 4px; }
-  .menu-btn { display: flex; }
-  .scroll, .composer-wrap { padding-left: 4px; padding-right: 4px; }
+  :root { --drawer-w: min(82vw, 320px); }
+  .app { display: block; padding: 0; overflow: hidden; background: var(--surface); }
+
+  .sidebar {
+    position: absolute; top: 0; bottom: 0; left: 0; width: var(--drawer-w); padding: 12px 8px 0;
+    border: 0; border-radius: 0; background: var(--surface); visibility: hidden; transition: visibility 0s 0.26s;
+  }
+  .sidebar.open { visibility: visible; transition: none; }
+  .desk-only { display: none; }
+  .brand-row { order: -2; padding: 6px 8px 10px; }
+  .brand { padding: 0; }
+  .nav-login { order: -1; min-height: 48px; font-size: 16px; color: var(--ink); }
+  .nav-label { margin: 14px 12px 4px; }
+  .sidebar .history { padding-bottom: 12px; }
+  .history .nav-item { padding: 10px 12px; }
+  .history .t { font-size: 16px; font-weight: 400; }
+  .history .s { font-size: 13px; }
+  .drawer-bar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 8px 14px; background: var(--surface); }
+
+  .main {
+    position: absolute; inset: 0; z-index: 1; background: var(--bg);
+    transition: transform 0.26s cubic-bezier(0.22, 0.7, 0.2, 1), border-radius 0.26s;
+  }
+  .menu-open .main { transform: translateX(var(--drawer-w)); border-radius: 26px 0 0 26px; box-shadow: -1px 0 0 var(--line), -12px 0 32px rgba(14, 22, 38, 0.08); overflow: hidden; }
+  .main-scrim { display: block; position: absolute; inset: 0; z-index: 4; border: 0; background: transparent; }
+  .mobile-bar { position: absolute; top: 10px; left: 12px; right: 12px; z-index: 3; display: flex; align-items: center; pointer-events: none; }
+  .mobile-bar .round-btn { pointer-events: auto; }
+  .mobile-brand { position: absolute; left: 0; right: 0; justify-content: center; padding: 0; font-size: 19px; }
+
+  .convo-head { min-height: 64px; padding: 10px 16px 6px 68px; }
+  .convo-head h1 { font-size: 17px; }
+  .convo-head .status { display: none; }
+  .scroll, .composer-wrap { padding-left: 12px; padding-right: 12px; }
+  .home { padding-top: 72px; }
   .home h1 { font-size: 32px; }
 }
+@media (max-width: 760px) and (prefers-reduced-motion: reduce) { .main { transition: none; } }
 .brand-row { display: flex; align-items: center; justify-content: space-between; }
 .icon-btn { width: 44px; height: 44px; border: 0; border-radius: 12px; background: transparent; align-items: center; justify-content: center; color: var(--ink-2); }
 
