@@ -53,6 +53,8 @@ body {
 }
 button, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
+/* sem o quadrado cinza que o iPhone desenha ao tocar: quem precisa de retorno usa :active */
+button, a, label { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 button:disabled { cursor: default; opacity: 0.45; }
 :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -314,15 +316,18 @@ textarea.ob-input { height: auto; padding: 9px 12px; }
 /* Celular: a conversa ocupa a tela toda e o histórico fica por baixo, à esquerda.
    O botão do canto empurra a conversa pro lado e mostra o painel. */
 .round-btn { flex: none; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(14, 22, 38, 0.05); }
+.round-btn:active { background: var(--bg); }
+.new-pill:active { background: #1b2740; }
+.nav-item:active { background: var(--bg); }
 .new-pill { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 18px; border: 0; border-radius: var(--radius-pill); background: var(--navy); color: #fff; font-size: 15px; font-weight: 500; white-space: nowrap; }
 
 @media (max-width: 760px) {
-  :root { --drawer-w: min(82vw, 320px); }
+  :root { --drawer-w: min(82vw, 320px); --drawer-t: 0.32s; --drawer-ease: cubic-bezier(0.32, 0.72, 0, 1); }
   .app { display: block; padding: 0; overflow: hidden; background: var(--surface); }
 
   .sidebar {
     position: absolute; top: 0; bottom: 0; left: 0; width: var(--drawer-w); padding: 12px 8px 0;
-    border: 0; border-radius: 0; background: var(--surface); visibility: hidden; transition: visibility 0s 0.26s;
+    border: 0; border-radius: 0; background: var(--surface); visibility: hidden; transition: visibility 0s var(--drawer-t);
   }
   .sidebar.open { visibility: visible; transition: none; }
   .desk-only { display: none; }
@@ -337,10 +342,14 @@ textarea.ob-input { height: auto; padding: 9px 12px; }
   .drawer-bar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 8px 14px; background: var(--surface); }
 
   .main {
-    position: absolute; inset: 0; z-index: 1; background: var(--bg);
-    transition: transform 0.26s cubic-bezier(0.22, 0.7, 0.2, 1), border-radius 0.26s;
+    position: absolute; inset: 0; z-index: 1; background: var(--bg); overflow: hidden;
+    /* a sombra fica sempre ali (fechado, cai fora da tela) e a camada já vem pronta: nada pisca no primeiro quadro */
+    box-shadow: -1px 0 0 var(--line), -12px 0 32px rgba(14, 22, 38, 0.08); will-change: transform;
+    transition: transform var(--drawer-t) var(--drawer-ease), border-radius var(--drawer-t) var(--drawer-ease);
   }
-  .menu-open .main { transform: translateX(var(--drawer-w)); border-radius: 26px 0 0 26px; box-shadow: -1px 0 0 var(--line), -12px 0 32px rgba(14, 22, 38, 0.08); overflow: hidden; }
+  .menu-open .main { transform: translateX(var(--drawer-w)); border-radius: 26px 0 0 26px; }
+  /* o feixe da caixa da home para durante a abertura: redesenhar ele a cada quadro trava o movimento */
+  .menu-open .fx > span { animation-play-state: paused; }
   .main-scrim { display: block; position: absolute; inset: 0; z-index: 4; border: 0; background: transparent; }
   .mobile-bar { position: absolute; top: 10px; left: 12px; right: 12px; z-index: 3; display: flex; align-items: center; pointer-events: none; }
   .mobile-bar .round-btn { pointer-events: auto; }
@@ -353,7 +362,7 @@ textarea.ob-input { height: auto; padding: 9px 12px; }
   .home { padding-top: 72px; }
   .home h1 { font-size: 32px; }
 }
-@media (max-width: 760px) and (prefers-reduced-motion: reduce) { .main { transition: none; } }
+@media (max-width: 760px) and (prefers-reduced-motion: reduce) { .main { transition: none; } .sidebar { transition: none; } }
 .brand-row { display: flex; align-items: center; justify-content: space-between; }
 .icon-btn { width: 44px; height: 44px; border: 0; border-radius: 12px; background: transparent; align-items: center; justify-content: center; color: var(--ink-2); }
 
