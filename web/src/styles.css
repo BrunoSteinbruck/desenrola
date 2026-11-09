@@ -323,7 +323,11 @@ textarea.ob-input { height: auto; padding: 9px 12px; }
 
 @media (max-width: 760px) {
   :root { --drawer-w: min(82vw, 320px); --drawer-t: 0.32s; --drawer-ease: cubic-bezier(0.32, 0.72, 0, 1); }
-  .app { display: block; padding: 0; overflow: hidden; background: var(--surface); }
+  /* o gesto de lado é nosso; rolar e dar zoom continuam com o navegador */
+  .app { display: block; padding: 0; overflow: hidden; background: var(--surface); touch-action: pan-y pinch-zoom; }
+  .app.dragging .main { transition: none; }
+  .app.dragging .sidebar { visibility: visible; transition: none; }
+  .app.dragging { user-select: none; -webkit-user-select: none; }
 
   .sidebar {
     position: absolute; top: 0; bottom: 0; left: 0; width: var(--drawer-w); padding: 12px 8px 0;

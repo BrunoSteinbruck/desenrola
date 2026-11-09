@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { api, subscribe, STATUS_LABEL, type Message, type RequestDetail, type RequestSummary, type Settings as SettingsData, type StreamEvent } from './api';
 import { Conversation } from './components/Conversation';
 import { MiniMap, Onboarding } from './components/Onboarding';
@@ -162,6 +163,84 @@ function ClientApp() {
     return () => removeEventListener('keydown', onKey);
   }, [menuOpen]);
 
+  // Celular: arrastar o dedo puxa o histórico (pra direita) e volta pra conversa (pra esquerda).
+  const appRef = useRef<HTMLDivElement>(null);
+  const menuOpenRef = useRef(menuOpen);
+  menuOpenRef.current = menuOpen;
+  useEffect(() => {
+    const app = appRef.current;
+    if (!app) return;
+    const main = app.querySelector<HTMLElement>('.main')!;
+    const sidebar = app.querySelector<HTMLElement>('.sidebar')!;
+    const narrow = matchMedia('(max-width: 760px)');
+    let drag: { x0: number; y0: number; open: boolean; width: number; active: boolean; x: number; lastX: number; lastT: number; speed: number } | null = null;
+
+    const release = () => {
+      main.style.transform = '';
+      main.style.borderRadius = '';
+      app.classList.remove('dragging');
+    };
+    const onStart = (e: TouchEvent) => {
+      drag = null;
+      // nos campos de texto o dedo serve pra selecionar e mover o cursor
+      if (!narrow.matches || e.touches.length !== 1 || (e.target as Element).closest('input, textarea, select')) return;
+      const t = e.touches[0];
+      const open = menuOpenRef.current;
+      const width = sidebar.offsetWidth;
+      drag = { x0: t.clientX, y0: t.clientY, open, width, active: false, x: open ? width : 0, lastX: t.clientX, lastT: e.timeStamp, speed: 0 };
+    };
+    const onMove = (e: TouchEvent) => {
+      if (!drag) return;
+      const t = e.touches[0];
+      const dx = t.clientX - drag.x0;
+      const dy = t.clientY - drag.y0;
+      if (!drag.active) {
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        // rolando a lista, ou arrastando pro lado que não leva a lugar nenhum: deixa como está
+        if (Math.abs(dy) >= Math.abs(dx) || (dx > 0) === drag.open) {
+          drag = null;
+          return;
+        }
+        drag.active = true;
+        app.classList.add('dragging');
+      }
+      e.preventDefault();
+      const dt = e.timeStamp - drag.lastT;
+      if (dt > 0) drag.speed = (t.clientX - drag.lastX) / dt;
+      drag.lastX = t.clientX;
+      drag.lastT = e.timeStamp;
+      drag.x = Math.max(0, Math.min(drag.width, (drag.open ? drag.width : 0) + dx));
+      main.style.transform = `translateX(${drag.x}px)`;
+      main.style.borderRadius = `${Math.round((drag.x / drag.width) * 26)}px 0 0 ${Math.round((drag.x / drag.width) * 26)}px`;
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (!drag?.active) {
+        drag = null;
+        return;
+      }
+      // um gesto rápido decide pelo sentido; um devagar, ou que parou antes de soltar, por onde o painel ficou
+      const fast = e.timeStamp - drag.lastT < 100 && Math.abs(drag.speed) > 0.4;
+      const open = fast ? drag.speed > 0 : drag.x > drag.width / 2;
+      drag = null;
+      flushSync(() => setMenuOpen(open));
+      release(); // solta do dedo: a animação normal leva até o fim a partir de onde parou
+    };
+    const onCancel = () => {
+      drag = null;
+      release();
+    };
+    app.addEventListener('touchstart', onStart, { passive: true });
+    app.addEventListener('touchmove', onMove, { passive: false });
+    app.addEventListener('touchend', onEnd);
+    app.addEventListener('touchcancel', onCancel);
+    return () => {
+      app.removeEventListener('touchstart', onStart);
+      app.removeEventListener('touchmove', onMove);
+      app.removeEventListener('touchend', onEnd);
+      app.removeEventListener('touchcancel', onCancel);
+    };
+  }, [auth]);
+
   const go = (id: number | null) => {
     location.hash = id == null ? '' : `#/p/${id}`;
     setMenuOpen(false);
@@ -201,7 +280,7 @@ function ClientApp() {
   return (
     <>
       {backdrop}
-      <div className={`app${menuOpen ? ' menu-open' : ''}`}>
+      <div ref={appRef} className={`app${menuOpen ? ' menu-open' : ''}`}>
         <nav aria-label="Histórico" className={`sidebar glass${menuOpen ? ' open' : ''}`}>
           <div className="brand-row">
             <span className="brand">
