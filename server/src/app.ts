@@ -207,7 +207,7 @@ export async function buildApp() {
     });
     const after = getClient(id)!;
     // mudou o endereço: os pedidos ainda não enviados e o diagnóstico passam a usar o novo
-    if (after.city !== before.city || after.neighborhood !== before.neighborhood) applyNewAddress(id, after.city, after.neighborhood);
+    if (after.city !== before.city || after.neighborhood !== before.neighborhood) applyNewAddress(id, after.city, after.neighborhood, !before.neighborhood);
     return clientView(after);
   });
 

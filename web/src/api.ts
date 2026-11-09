@@ -75,6 +75,7 @@ export type RequestDetail = {
     category: string | null;
     city: string | null;
     neighborhood: string | null;
+    details_json?: string | null;
     scheduled_for: string | null;
     closed_provider_id: number | null;
     closed_value_cents: number | null;

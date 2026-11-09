@@ -133,6 +133,55 @@ function Progress({ at }: { at: 1 | 2 }) {
   );
 }
 
+/** Cidade e bairro, mapa e confirmação, dentro da conversa: aparece quando ainda não sei onde a pessoa está. */
+export function PlaceStep({
+  initialCity = '',
+  initialHood = '',
+  busy,
+  onConfirm,
+}: {
+  initialCity?: string;
+  initialHood?: string;
+  busy: boolean;
+  onConfirm: (city: string, neighborhood: string) => void;
+}) {
+  const [city, setCity] = useState(initialCity);
+  const [hood, setHood] = useState(initialHood);
+  const [mapReady, setMapReady] = useState(false);
+  const [place, setPlace] = useState<{ city: string; neighborhood: string } | null>(null);
+  const ready = !!city.trim() && !!hood.trim() && mapReady;
+  // o mapa empurra o botão pra fora da tela: rola até o fim do formulário quando ele aparece e quando libera
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (place || ready) formRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [place, ready]);
+  return (
+    <form
+      ref={formRef}
+      className="ob-box glass"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (ready && !busy) onConfirm((place?.city ?? city).trim(), (place?.neighborhood ?? hood).trim());
+      }}
+    >
+      <div className="field-row">
+        <label className="field">
+          Cidade
+          <input className="ob-input" value={city} autoComplete="address-level2" placeholder="Ex.: Canoas" onChange={(e) => setCity(e.target.value)} />
+        </label>
+        <label className="field">
+          Bairro
+          <input className="ob-input" value={hood} placeholder="Ex.: Centro" onChange={(e) => setHood(e.target.value)} />
+        </label>
+      </div>
+      <MiniMap city={city} hood={hood} onReady={setMapReady} onPlace={setPlace} />
+      <button type="submit" className="btn dark ob-cta" disabled={!ready || busy}>
+        {busy ? 'Procurando…' : 'É aqui'}
+      </button>
+    </form>
+  );
+}
+
 /**
  * Mapinha do Google (embed sem chave). Aparece logo que bairro e cidade param de mudar;
  * `onReady(true)` só depois que o mapa carregou (ou não deu pra carregar), pra o "É aqui" fazer sentido.

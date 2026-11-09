@@ -183,6 +183,13 @@ test('pedido: matching → pedido_novo pros dois → Marcos vê e negocia → or
   assert.match(JSON.parse(lastTemplate(JOAO, 'pedido_encerrado')!.payload_json).vars['3'], /escolheu outro/);
 });
 
+test('sem cidade ou bairro confirmados não busca profissional', () => {
+  const r = newRequest('torneira pingando');
+  run('UPDATE requests SET city = NULL, neighborhood = NULL WHERE id = ?', r);
+  assert.throws(() => offers.findProviders(r), (e: Error & { code?: string }) => e.code === 'place_required');
+  run("UPDATE requests SET status = 'cancelado' WHERE id = ?", r);
+});
+
 test('um pedido por vez: passar pro pedido novo deixa o anterior na fila, e ele volta quando o novo orça', async () => {
   const a = newRequest('tomada da sala faiscando');
   const b = newRequest('disjuntor caindo toda hora');

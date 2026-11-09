@@ -62,7 +62,8 @@ export function findProviders(requestId: number) {
   if (!req) throw new OfferError('Pedido não encontrado', 404);
   if (!req.category) throw new OfferError('Ainda não tenho o diagnóstico desse pedido', 409);
   if (!['diagnostico', 'sem_prestadores', 'escolhendo'].includes(req.status)) throw new OfferError(`Não dá pra buscar nessa etapa (${req.status})`, 409);
-  const city = req.city || clientOfRequest(requestId)?.city || 'Porto Alegre';
+  if (!req.city || !req.neighborhood) throw new OfferError('Confirma tua cidade e teu bairro pra eu achar quem atende aí.', 409, 'place_required');
+  const city = req.city;
   const found = eligibleProviders(req.category, city, req.neighborhood).slice(0, MAX_OFFERS);
 
   run("DELETE FROM request_providers WHERE request_id = ? AND status IN ('sugerido','excluido')", requestId);

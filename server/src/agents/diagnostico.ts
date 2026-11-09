@@ -5,7 +5,7 @@ import { bus } from '../events.ts';
 import {
   all, get, getRequest, postMessage, run, updateRequest, setRequestStatus, type Card,
 } from '../db.ts';
-import { clientOfRequest, updateClient } from '../auth/clients.ts';
+import { clientOfRequest } from '../auth/clients.ts';
 import { withLock } from '../lib/lock.ts';
 import { nowBR } from '../lib/time.ts';
 import { shortTitle } from '../lib/title.ts';
@@ -17,12 +17,12 @@ const AGENT = 'diagnostico';
 const SYSTEM = `Tu é o Desenrola, um assistente que ajuda pessoas a resolver problemas de casa e serviços (elétrica, encanamento, chaveiro, pintura, montagem de móveis, ar-condicionado, etc.). Depois de entender o problema, o Desenrola avisa profissionais cadastrados da região, que mandam orçamento pelo nosso WhatsApp; o usuário compara e escolhe aqui no site.
 
 Teu trabalho aqui é só o diagnóstico:
-- Entende o que é o problema e onde é (bairro/cidade). Se a cidade não for dita, usa a cidade padrão do usuário informada no contexto.
+- Entende o que é o problema. Nunca pergunta bairro nem cidade: o app cuida do local num passo próprio, depois do diagnóstico.
 - Antes de chamar definir_diagnostico, te pergunta: com o que o usuário contou, um profissional já conseguiria dar um valor aproximado?
   - Se SIM (o problema está bem descrito: o que é, o que acontece e onde), chama definir_diagnostico direto, sem perguntar mais nada.
   - Se NÃO (ex.: uma frase só e vaga, tipo "disjuntor desarmando" ou "pia com problema"), faz UMA pergunta, a que mais ajuda o profissional a orçar. Pode juntar duas coisas curtas na mesma pergunta. Ex.: "Desarma quando tu liga algum aparelho específico, tipo o chuveiro, ou do nada? E é o disjuntor geral ou um só?". Depois da resposta, chama definir_diagnostico, mesmo que ainda falte algum detalhe.
   - Nunca pergunta o que o usuário já disse, nem coisas que o profissional resolve na visita.
-- No máximo uma pergunta sobre o problema e, se precisar, uma sobre o bairro. Não transforma isso num questionário.
+- No máximo uma pergunta sobre o problema. Não transforma isso num questionário.
 - Depois de chamar, diz em uma frase qual profissional ele precisa e pergunta se pode chamar os da região (ex.: "Pra isso tu precisa de um eletricista. Quer que eu chame os da tua região?"). O usuário confirma por um botão.
 - Escreve em português do Brasil, tom simples e próximo, pode usar "tu". Respostas curtas, sem listas longas, sem emoji.
 - Não dá orçamento nem preço, não promete prazos. Se for algo perigoso (cheiro de gás, fio pegando fogo), orienta a segurança primeiro (desligar o disjuntor, sair do local, ligar pros bombeiros 193).
@@ -31,7 +31,7 @@ Teu trabalho aqui é só o diagnóstico:
 const TOOLS = [
   strictTool(
     'definir_diagnostico',
-    'Registra o diagnóstico do problema e libera a busca de prestadores. Chame assim que souber a profissão e o bairro.',
+    'Registra o diagnóstico do problema e libera a busca de prestadores. Chame assim que souber a profissão.',
     {
       titulo: {
         type: 'string',
@@ -48,8 +48,8 @@ const TOOLS = [
           'O problema em até 180 caracteres, com as palavras e os detalhes que o usuário deu, como ele mesmo contaria pro profissional. Sem ponto final, sem dado pessoal. Ex.: "o disjuntor geral desarma toda vez que ligo o chuveiro, o resto da casa funciona normal".',
       },
       profissao: { type: 'string', description: 'Profissão a buscar, no singular, ex.: "eletricista", "encanador", "chaveiro"' },
-      cidade: { type: 'string' },
-      bairro: { type: 'string' },
+      cidade: { type: 'string', description: 'Só se o usuário disse ou se está no contexto. Senão, vazio. Nunca adivinha.' },
+      bairro: { type: 'string', description: 'Só se o usuário disse ou se está no contexto. Senão, vazio. Nunca adivinha.' },
       urgencia: { type: 'string', enum: ['urgente', 'esta_semana', 'sem_pressa'] },
     },
   ),
@@ -90,7 +90,7 @@ const EDITABLE = new Set(['diagnostico', 'sem_prestadores', 'escolhendo']);
  * e o diagnóstico fica sabendo (nota no próximo turno). Pedido que já tinha lista de profissionais volta pro passo
  * de procurar, pra buscar no lugar certo. Pedido já enviado não muda (os profissionais já foram avisados).
  */
-export function applyNewAddress(clientId: number, city: string, neighborhood: string) {
+export function applyNewAddress(clientId: number, city: string, neighborhood: string, firstTime = false) {
   const where = [neighborhood, city].filter(Boolean).join(', ');
   const open = all<{ id: number; status: string; category: string | null }>(
     "SELECT id, status, category FROM requests WHERE client_id = ? AND status IN ('diagnostico', 'sem_prestadores', 'escolhendo')",
@@ -106,6 +106,8 @@ export function applyNewAddress(clientId: number, city: string, neighborhood: st
       run("DELETE FROM request_providers WHERE request_id = ? AND status IN ('sugerido', 'excluido')", r.id);
       setRequestStatus(r.id, 'diagnostico');
     }
+    // primeira vez: a pessoa acabou de confirmar no mapa, não precisa de aviso
+    if (firstTime) continue;
     postMessage(
       r.id,
       'system_event',
@@ -131,12 +133,12 @@ async function turn(requestId: number, userText: string) {
   if (state.history.length === 0) {
     const client = clientOfRequest(requestId);
     const name = client?.name ?? '';
-    const city = client?.city || 'Porto Alegre';
     const hood = client?.neighborhood ?? '';
     userContent =
-      `Contexto do app:\n- Nome do usuário: ${name || '(não informado)'}\n- Cidade padrão: ${city}\n` +
-      `- Bairro padrão: ${hood || '(não informado)'}\n` +
-      (hood ? '- Se a mensagem não citar outro lugar, use o bairro e a cidade padrão sem perguntar.\n' : '') +
+      `Contexto do app:\n- Nome do usuário: ${name || '(não informado)'}\n` +
+      (hood
+        ? `- Cidade padrão: ${client!.city}\n- Bairro padrão: ${hood}\n- Se a mensagem não citar outro lugar, use o bairro e a cidade padrão.\n`
+        : '- Local: ainda não sei; o usuário confirma depois do diagnóstico. Só preenche cidade e bairro se ele disser.\n') +
       `- Agora: ${nowBR()}\n\n` +
       `Mensagem do usuário:\n${texts.join('\n')}`;
   } else {
@@ -161,22 +163,26 @@ async function turn(requestId: number, userText: string) {
     const cur = getRequest(requestId)!;
     if (!EDITABLE.has(cur.status)) return { content: 'O pedido já está em andamento; o diagnóstico não pode mais mudar.', isError: true };
     const i = toolInput<{ titulo: string; resumo_para_prestador: string; relato_curto: string; profissao: string; cidade: string; bairro: string; urgencia: string }>(b);
-    if (!i.profissao || !i.bairro) return { content: 'Faltou profissão ou bairro.', isError: true };
+    if (!i.profissao) return { content: 'Faltou a profissão.', isError: true };
+    // sem lugar salvo, o local só vale depois de confirmado no mapa; o que a pessoa citou só preenche o formulário
+    const owner = clientOfRequest(requestId);
+    const known = !!owner?.neighborhood;
     if (cur.status === 'escolhendo') run("DELETE FROM request_providers WHERE request_id = ? AND status IN ('sugerido','excluido')", requestId);
     updateRequest(requestId, {
       title: shortTitle(i.titulo),
       summary: i.resumo_para_prestador,
       category: i.profissao,
-      city: i.cidade || clientOfRequest(requestId)?.city || 'Porto Alegre',
-      neighborhood: i.bairro,
-      details_json: JSON.stringify({ urgencia: i.urgencia, relato_curto: i.relato_curto }),
+      city: known ? i.cidade || owner!.city : null,
+      neighborhood: known ? i.bairro || owner!.neighborhood : null,
+      details_json: JSON.stringify({ urgencia: i.urgencia, relato_curto: i.relato_curto, cidade_citada: i.cidade, bairro_citado: i.bairro }),
     });
     if (cur.status !== 'diagnostico') setRequestStatus(requestId, 'diagnostico');
-    // lembra o lugar pro próximo pedido (visitante ou cliente que ainda não tinha bairro)
-    const owner = clientOfRequest(requestId);
-    if (owner && !owner.neighborhood) updateClient(owner.id, { neighborhood: i.bairro, city: i.cidade || owner.city });
     diagnosed = { profissao: i.profissao, resumo: i.resumo_para_prestador };
-    return { content: 'Diagnóstico registrado. Agora diga ao usuário, em uma frase, qual profissional ele precisa e pergunte se pode chamar os da região. Ele confirma por um botão.' };
+    return {
+      content: known
+        ? 'Diagnóstico registrado. Agora diga ao usuário, em uma frase, qual profissional ele precisa e pergunte se pode chamar os da região. Ele confirma por um botão.'
+        : 'Diagnóstico registrado. Agora diga ao usuário, em uma frase, qual profissional ele precisa e peça pra informar a cidade e o bairro logo abaixo, pra achar os da região.',
+    };
   };
 
   try {

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api, brl, ApiError, PROVIDER_STATUS_LABEL, type Card, type RequestDetail, type RequestProvider, type Settings, type Suggestion } from '../api';
 import { Login } from './Login';
+import { PlaceStep } from './Onboarding';
 import { IconStar } from './ui';
 
 type Ctx = {
@@ -62,6 +63,28 @@ function DiagnosticoCard({ card, ctx }: { card: Extract<Card, { kind: 'diagnosti
   const { busy, run } = useAction(ctx.onError);
   const pending = ctx.detail.request.status === 'diagnostico' || (ctx.detail.request.status === 'sem_prestadores' && ctx.isLatest('diagnostico'));
   if (!pending) return null;
+  const { request } = ctx.detail;
+  if (!request.city || !request.neighborhood) {
+    let cited: { cidade_citada?: string; bairro_citado?: string } = {};
+    try {
+      cited = JSON.parse(request.details_json ?? '{}');
+    } catch {
+      // sem sugestão: a pessoa preenche
+    }
+    return (
+      <PlaceStep
+        initialCity={cited.cidade_citada}
+        initialHood={cited.bairro_citado}
+        busy={busy}
+        onConfirm={(city, neighborhood) =>
+          run(async () => {
+            await api.putSettings({ user_city: city, user_neighborhood: neighborhood });
+            await api.search(request.id);
+          })
+        }
+      />
+    );
+  }
   return (
     <div className="actions">
       <button type="button" className="btn dark" disabled={busy} onClick={() => run(() => api.search(ctx.detail.request.id))}>
