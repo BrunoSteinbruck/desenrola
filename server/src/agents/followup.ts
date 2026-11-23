@@ -23,6 +23,8 @@ export function rate(requestId: number, input: { providerId: number; stars: numb
   if (!req) throw new FlowError('Pedido não encontrado', 404);
   const prov = getProvider(input.providerId);
   if (!prov) throw new FlowError('Prestador não encontrado', 404);
+  // a nota entra na média que ordena os profissionais: só vale de quem fechou esse pedido com ele
+  if (req.closed_provider_id !== input.providerId) throw new FlowError('Só dá pra avaliar o profissional que fechou esse pedido', 409);
   const stars = Math.round(input.stars);
   if (!(stars >= 1 && stars <= 5)) throw new FlowError('Nota deve ser de 1 a 5');
   if (get('SELECT 1 FROM ratings WHERE request_id = ? AND provider_id = ?', requestId, input.providerId)) throw new FlowError('Já avaliado', 409);

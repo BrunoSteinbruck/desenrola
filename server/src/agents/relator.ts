@@ -160,7 +160,7 @@ export function approve(requestId: number, rpId: number) {
 export function reject(requestId: number, rpId: number) {
   const rp = getRp(rpId);
   if (!rp || rp.request_id !== requestId) throw new FlowError('Profissional não encontrado', 404);
-  if (['fechado', 'recusado_pelo_usuario', 'dispensado'].includes(rp.status)) return;
+  if (['fechado', 'recusado_pelo_usuario', 'dispensado', 'sugerido', 'excluido'].includes(rp.status)) return;
   closeOfferFor(rp, 'o cliente decidiu não seguir com este orçamento');
   updateRp(rpId, { status: 'recusado_pelo_usuario', last_activity_at: now() });
   checkExhausted(requestId);

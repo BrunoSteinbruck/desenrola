@@ -53,7 +53,9 @@ export async function registerAuth(app: FastifyInstance) {
   if (prod() && !process.env.ADMIN_PASSWORD) throw new Error('ADMIN_PASSWORD é obrigatória em produção (protege o /admin).');
 
   app.addHook('onRequest', async (req, reply) => {
-    const url = req.url.split('?')[0];
+    // a rota que o roteador casou, não o endereço cru: "/%61pi/admin/..." chega na rota do admin
+    // (o roteador decodifica) e passaria batido por um teste de prefixo no texto do endereço
+    const url = req.routeOptions.url ?? req.url.split('?')[0];
     if (!url.startsWith('/api/')) return;
     if (PUBLIC.some((p) => url.startsWith(p))) return;
     if (url.startsWith('/api/dev/') && !prod()) return;

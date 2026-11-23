@@ -44,6 +44,38 @@ test('sem login vira visitante (cookie); visitante conversa mas não avisa profi
   assert.equal((await app.inject('/api/admin/providers')).statusCode, 401);
 });
 
+test('endereço com letra codificada não fura o login do admin nem o do cliente', async () => {
+  for (const url of ['/%61pi/admin/providers', '/api/%61dmin/providers', '/api/admin/%70roviders', '/%61pi/admin/inbox']) {
+    assert.equal((await app.inject(url)).statusCode, 401, url);
+  }
+  const r = await app.inject('/%61pi/requests');
+  assert.equal(r.statusCode, 200, 'rota de cliente codificada cai no visitante, como a normal');
+  assert.deepEqual(r.json(), []);
+});
+
+test('visitante não manda texto pra profissional que não foi avisado, e nota só vale pra quem fechou o pedido', async () => {
+  const g = await app.inject('/api/settings');
+  const cookie = cookieOf(g);
+  const ts = now();
+  const prov = (n: string, phone: string) => Number(run("INSERT INTO providers (name, phone_e164, source) VALUES (?, ?, 'admin')", n, phone).lastInsertRowid);
+  const a = prov('Sugerido', '5551991110061');
+  const b = prov('Outro', '5551991110062');
+  const id = Number(run("INSERT INTO requests (status, client_id, title, category, closed_provider_id, created_at, updated_at) VALUES ('fechado', ?, 'Nota', 'eletricista', ?, ?, ?)", g.json().id, a, ts, ts).lastInsertRowid);
+  const rp = Number(run("INSERT INTO request_providers (request_id, provider_id, status) VALUES (?, ?, 'sugerido')", id, a).lastInsertRowid);
+  const before = get<{ n: number }>('SELECT COUNT(*) AS n FROM wa_outbox')!.n;
+  const reply = await app.inject({ method: 'POST', url: `/api/requests/${id}/quotes/${rp}/reply`, headers: { cookie }, payload: { text: 'oi' } });
+  assert.equal(reply.statusCode, 409);
+  const viaMsg = await app.inject({ method: 'POST', url: `/api/requests/${id}/messages`, headers: { cookie }, payload: { text: 'oi', providerId: rp } });
+  assert.equal(viaMsg.statusCode, 409);
+  assert.equal((await app.inject({ method: 'POST', url: `/api/requests/${id}/quotes/${rp}/reject`, headers: { cookie }, payload: {} })).statusCode, 200);
+  assert.equal(get<{ n: number }>('SELECT COUNT(*) AS n FROM wa_outbox')!.n, before, 'nada foi pra fila do WhatsApp');
+  const wrong = await app.inject({ method: 'POST', url: `/api/requests/${id}/rating`, headers: { cookie }, payload: { providerId: b, stars: 1 } });
+  assert.equal(wrong.statusCode, 409);
+  assert.equal(get<{ n: number }>('SELECT COUNT(*) AS n FROM ratings WHERE provider_id = ?', b)!.n, 0);
+  const right = await app.inject({ method: 'POST', url: `/api/requests/${id}/rating`, headers: { cookie }, payload: { providerId: a, stars: 5 } });
+  assert.equal(right.statusCode, 200);
+});
+
 test('visitante confirma o celular: número novo vira o cliente e mantém os pedidos', async () => {
   const g = await app.inject('/api/settings');
   const cookie = cookieOf(g);

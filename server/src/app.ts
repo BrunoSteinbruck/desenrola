@@ -6,24 +6,21 @@ import fastifyStatic from '@fastify/static';
 import { z, ZodError } from 'zod';
 import { bus, type ServerEvent } from './events.ts';
 import {
-  get, getRequest, getRp, getSetting, listRequestsView, now, paymentView, postMessage, publicSettings, requestView, run,
-  setSetting, updateRp,
+  get, getRequest, getRp, listRequestsView, now, postMessage, requestView, run, updateRp,
 } from './db.ts';
 import { applyNewAddress, runDiagnostico } from './agents/diagnostico.ts';
-import { pushUserReply, recoverNegotiations } from './agents/negociador.ts';
+import { pushUserReply } from './agents/negociador.ts';
 import { approve, cancelRequest, FlowError, reject } from './agents/relator.ts';
 import { rate } from './agents/followup.ts';
-import { closeHandoff, dispatch, findProviders, OfferError, onInbound, openHandoff } from './marketplace/offers.ts';
+import { dispatch, findProviders, OfferError, onInbound } from './marketplace/offers.ts';
 import { onProviderConsent, ProviderError } from './marketplace/providers.ts';
 import { registerAdminRoutes } from './marketplace/admin-routes.ts';
 import { recordSuggestionClick } from './marketplace/suggestions.ts';
 import { registerProRoutes } from './marketplace/pro-routes.ts';
-import { startScheduler } from './services/scheduler.ts';
 import { hasPlaces } from './services/places.ts';
-import { toE164BR } from './services/phone.ts';
 import { neighborhoodsOfCity, normalizePlace } from './services/geo.ts';
 import { hasClaude } from './agents/claude.ts';
-import { channel, onConsentChange, onInboundMessage, registerWhatsAppRoutes, startChannel } from './channel/index.ts';
+import { channel, onConsentChange, onInboundMessage, registerWhatsAppRoutes } from './channel/index.ts';
 import { registerSiteGate } from './lib/gate.ts';
 import { clientView, getClient, updateClient } from './auth/clients.ts';
 import { registerAuth } from './auth/routes.ts';
@@ -67,6 +64,11 @@ export async function buildApp() {
     if (!rp || rp.request_id !== requestId) throw new FlowError('Profissional não encontrado nesse pedido', 404);
     return rp;
   }
+  /** Resposta do cliente só vai pra quem já foi avisado do pedido (antes disso seria mensagem não pedida, e sem login). */
+  function requireContacted(rpId: number) {
+    const st = getRp(rpId)?.status;
+    if (!st || st === 'sugerido' || st === 'excluido') throw new FlowError('Esse profissional ainda não foi avisado desse pedido', 409);
+  }
   const bg = (p: Promise<unknown>) => void p.catch((err) => app.log.error(err));
 
   // ---------- pedidos (sempre do cliente logado) ----------
@@ -102,6 +104,7 @@ export async function buildApp() {
         get<{ id: number }>('SELECT id FROM request_providers WHERE id = ? AND request_id = ?', body.providerId, id) ??
         get<{ id: number }>('SELECT id FROM request_providers WHERE provider_id = ? AND request_id = ?', body.providerId, id);
       if (!rp) throw new FlowError('Profissional não encontrado nesse pedido', 404);
+      requireContacted(rp.id);
       postMessage(id, 'user', body.text);
       pushUserReply(rp.id, body.text);
     } else {
@@ -157,6 +160,7 @@ export async function buildApp() {
     const { id, rpId } = rpParam.parse(req.params);
     const { text } = z.object({ text: z.string().trim().min(1).max(4000) }).parse(req.body);
     requireRp(req, id, rpId);
+    requireContacted(rpId);
     postMessage(id, 'user', text);
     pushUserReply(rpId, text);
     return { ok: true };
@@ -221,8 +225,6 @@ export async function buildApp() {
     ok: true,
     claude: hasClaude(),
     places: hasPlaces(),
-    transcription: !!process.env.OPENAI_API_KEY,
-    devTestProvider: !!process.env.DEV_TEST_PROVIDER_PHONE,
     payments: false,
     whatsappOficial: channel.name,
   }));
