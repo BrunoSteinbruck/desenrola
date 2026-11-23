@@ -48,16 +48,17 @@ function ClientApp() {
   const [toast, setToast] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [noKey, setNoKey] = useState(false);
-  const [paymentsOn, setPaymentsOn] = useState(false);
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [auth, setAuth] = useState<'checking' | 'out' | 'in'>('checking');
   const [panel, setPanel] = useState<'settings' | 'login' | null>(null);
   const currentRef = useRef(currentId);
   currentRef.current = currentId;
 
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const showError = useCallback((msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 4000);
+    clearTimeout(toastTimer.current); // um aviso antigo não apaga o novo antes da hora
+    toastTimer.current = setTimeout(() => setToast(null), 4000);
   }, []);
 
   const loadList = useCallback(() => api.listRequests().then(setRequests).catch(() => {}), []);
@@ -90,10 +91,7 @@ function ClientApp() {
   useEffect(() => {
     api
       .health()
-      .then((h) => {
-        setNoKey(!h.claude);
-        setPaymentsOn(!!h.payments);
-      })
+      .then((h) => setNoKey(!h.claude))
       .catch(() => {});
     api.getSettings().then(
       (s) => {
@@ -122,8 +120,6 @@ function ClientApp() {
               ? { ...s, content: s.content + e.text }
               : { id: e.messageId, streamId: e.messageId, role: 'assistant', content: e.text, card: null, created_at: '', streaming: true },
           );
-          break;
-        case 'message.done':
           break;
         case 'message.created':
           if (e.requestId !== cur) {
@@ -246,6 +242,13 @@ function ClientApp() {
     setMenuOpen(false);
   };
 
+  // entrou na conta: a lista e o pedido aberto passam a ser os dessa conta
+  const afterLogin = (me: SettingsData) => {
+    setSettings(me);
+    void loadList();
+    if (currentRef.current != null) loadDetail(currentRef.current);
+  };
+
   const start = async (text: string) => {
     try {
       const { id } = await api.createRequest(text);
@@ -257,17 +260,9 @@ function ClientApp() {
     }
   };
 
-  const backdrop = (
-    <div className="backdrop" aria-hidden="true">
-      <span className="b1" />
-      <span className="b2" />
-      <span className="b3" />
-    </div>
-  );
   if (auth !== 'in') {
     return (
       <>
-        {backdrop}
         {auth === 'out' && (
           <section className="home">
             <p className="hint">Não consegui falar com o servidor. Ele está rodando?</p>
@@ -279,7 +274,6 @@ function ClientApp() {
 
   return (
     <>
-      {backdrop}
       <div ref={appRef} className={`app${menuOpen ? ' menu-open' : ''}`}>
         <nav aria-label="Histórico" className={`sidebar glass${menuOpen ? ' open' : ''}`}>
           <div className="brand-row">
@@ -333,7 +327,7 @@ function ClientApp() {
           </div>
           {/* com o painel aberto, tocar na conversa fecha */}
           {menuOpen && <button type="button" className="main-scrim" aria-label="Fechar histórico" onClick={() => setMenuOpen(false)} />}
-          {currentId == null && settings && !settings.is_guest && !settings.onboarding_done ? (
+          {currentId == null && settings && !settings.is_guest && !settings.onboarding_done && !(settings.user_name && settings.user_city && settings.user_neighborhood) ? (
             <Onboarding
               initial={{ user_name: settings.user_name, user_city: settings.user_city, user_neighborhood: settings.user_neighborhood }}
               onDone={() => api.getSettings().then(setSettings).catch(() => setSettings({ ...settings, onboarding_done: true }))}
@@ -348,7 +342,7 @@ function ClientApp() {
                 label="Descreva o problema"
                 big
                 autoFocus
-                placeholder="Ex.: a tomada da cozinha está faiscando quando ligo a air fryer"
+                placeholder="Ex.: a tomada da cozinha está faiscando"
                 onSend={start}
               />
               {noKey && <p className="hint">Falta a ANTHROPIC_API_KEY no arquivo .env — sem ela eu não consigo responder.</p>}
@@ -359,11 +353,7 @@ function ClientApp() {
               streaming={streaming}
               waiting={waiting}
               me={settings!}
-              onLoggedIn={(me) => {
-                setSettings(me);
-                void loadList();
-              }}
-              paymentsOn={paymentsOn}
+              onLoggedIn={afterLogin}
               onError={showError}
             />
           ) : null}
@@ -377,9 +367,8 @@ function ClientApp() {
             hideTitle
             intro=""
             onDone={(me) => {
-              setSettings(me);
               setPanel(null);
-              void loadList();
+              afterLogin(me);
             }}
           />
         </Dialog>
@@ -390,10 +379,7 @@ function ClientApp() {
             setPanel(null);
             api.getSettings().then(setSettings).catch(() => {});
           }}
-          onLoggedIn={(me) => {
-            setSettings(me);
-            void loadList();
-          }}
+          onLoggedIn={afterLogin}
         />
       )}
 

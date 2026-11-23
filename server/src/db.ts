@@ -368,6 +368,8 @@ export function requestView(id: number) {
       category: r.category,
       city: r.city,
       neighborhood: r.neighborhood,
+      // cidade e bairro que a pessoa citou na conversa: o formulário de lugar já abre preenchido
+      details_json: r.details_json,
       scheduled_for: r.scheduled_for,
       closed_provider_id: r.closed_provider_id,
       closed_value_cents: r.closed_value_cents,

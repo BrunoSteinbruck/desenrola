@@ -131,12 +131,11 @@ export const api = {
   reject: (id: number, rpId: number) => call('POST', `/requests/${id}/quotes/${rpId}/reject`),
   reply: (id: number, rpId: number, text: string) =>
     call('POST', `/requests/${id}/quotes/${rpId}/reply`, { text }),
-  resume: (id: number, rpId: number) => call('POST', `/requests/${id}/providers/${rpId}/resume`),
   suggestionClick: (id: number, providerId: number) => call('POST', `/requests/${id}/suggestions/${providerId}/click`),
   rate: (id: number, body: { providerId: number; stars: number; comment: string; serviceDone: boolean }) =>
     call('POST', `/requests/${id}/rating`, body),
   health: () =>
-    call<{ claude: boolean; places: boolean; transcription: boolean; payments: boolean; whatsappOficial: 'twilio' | 'stub' }>('GET', '/health'),
+    call<{ claude: boolean; places: boolean; payments: boolean; whatsappOficial: 'twilio' | 'stub' }>('GET', '/health'),
   normalizePlace: (city: string, neighborhood: string) =>
     call<{ city: string; neighborhood: string; found: boolean }>('POST', '/geo/normalize', { city, neighborhood }),
   neighborhoods: (city: string) => call<{ names: string[] }>('GET', `/geo/neighborhoods?city=${encodeURIComponent(city)}`),
@@ -207,16 +206,6 @@ export function subscribe(onEvent: (e: StreamEvent) => void, onReconnect: () => 
     clearTimeout(retry);
     es?.close();
   };
-}
-
-/** "555185907072@s.whatsapp.net" -> "(51) 98590-7072" (o JID do WhatsApp às vezes vem sem o 9º dígito). */
-export function phoneFromJid(jid: string | null | undefined): string {
-  const d = (jid ?? '').split('@')[0].split(':')[0].replace(/\D/g, '');
-  if (!d.startsWith('55') || d.length < 12) return d ? `+${d}` : '';
-  const ddd = d.slice(2, 4);
-  let local = d.slice(4);
-  if (local.length === 8 && /^[6-9]/.test(local)) local = `9${local}`;
-  return local.length === 9 ? `(${ddd}) ${local.slice(0, 5)}-${local.slice(5)}` : `(${ddd}) ${local.slice(0, 4)}-${local.slice(4)}`;
 }
 
 export const brl =(cents: number | null | undefined) =>

@@ -210,6 +210,8 @@
   .adm-table tbody tr:last-child { border-bottom: 0; }
   .adm-table td, .adm-table tbody tr:last-child td { display: block; padding: 0; border: 0; text-align: left; }
   .adm-table td[data-cell='main'] { padding-right: 40px; }
+  /* número solto não diz nada sem o cabeçalho, que some no celular */
+  .adm-table td[data-label]::before { content: attr(data-label) ': '; color: var(--muted); font-weight: 400; }
   .adm-table .cell-region { max-width: none; }
   .adm-table tbody tr td:has(> .cell-none) { display: none; }
   .adm-table td.cell-actions { position: static; width: auto; text-align: left; }

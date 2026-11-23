@@ -37,10 +37,10 @@ entrada durável, fila de saída com retry, janela de 24h e opt-in/opt-out.
    e os pedidos do visitante passam pra conta. Cada cliente só vê os próprios pedidos (rotas e tempo real).
    O primeiro cliente de verdade herda os pedidos da época de usuário único.
 1. **Admin** em `/admin` (senha `ADMIN_PASSWORD`; em dev qualquer senha): cadastra o profissional (nome, celular, categorias, bairros).
-   Sai o template `boas_vindas`; só quando ele toca em **"Sim, quero receber"** vira ativo (a prova do opt-in fica guardada).
+   Sai o template `boas_vindas`; só quando ele toca em **"Quero receber"** vira ativo (a prova do opt-in fica guardada).
 2. **Cliente** descreve o problema no site → diagnóstico → "Ver eletricista da região" (matching no nosso banco, não manda nada) →
    "Pedir orçamentos" (template `pedido_novo` pros selecionados).
-3. O profissional toca em **"Ver detalhes"** e o agente do Desenrola negocia (uma negociação por profissional; os outros pedidos dele esperam na fila).
+3. O profissional toca em **"Posso atender"** e o agente do Desenrola negocia (uma negociação por profissional; os outros pedidos dele esperam na fila).
 4. O cliente **aprova** → o profissional recebe nome, celular e bairro do cliente (`orcamento_aprovado`) e os outros recebem `pedido_encerrado`.
 5. Se o profissional pedir uma pessoa ou sair do assunto, a conversa vai pro **inbox do admin** (aba Conversas).
 6. **Sem profissional na região:** o cliente vê contatos sugeridos (busca na internet guardada no banco; quem chama é o cliente, por `wa.me`).

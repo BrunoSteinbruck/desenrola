@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, brl, ApiError, PROVIDER_STATUS_LABEL, type Card, type RequestDetail, type RequestProvider, type Settings, type Suggestion } from '../api';
 import { Login } from './Login';
 import { PlaceStep } from './Onboarding';
@@ -8,7 +8,6 @@ type Ctx = {
   detail: RequestDetail;
   me: Settings;
   onLoggedIn: (me: Settings) => void;
-  paymentsOn: boolean;
   isLatest: (kind: Card['kind']) => boolean;
   onError: (msg: string) => void;
 };
@@ -40,16 +39,12 @@ export function CardView({ card, ctx }: { card: Card; ctx: Ctx }) {
       return <DiagnosticoCard card={card} ctx={ctx} />;
     case 'providers':
       return <ProvidersCard ctx={ctx} />;
-    case 'payment':
-      return null; // Pix do cliente saiu na V2 (cobrança passa pro prestador, F6)
     case 'progress':
       return <ProgressCard ctx={ctx} />;
     case 'quote':
       return <QuoteCard rpId={card.rpId} ctx={ctx} />;
     case 'decision':
-      return <DecisionCard rpId={card.rpId} pergunta={card.pergunta} ctx={ctx} />;
-    case 'paused':
-      return <PausedCard rpId={card.rpId} ctx={ctx} />;
+      return <DecisionCard rpId={card.rpId} ctx={ctx} />;
     case 'suggestions':
       return <SuggestionsCard items={card.items} ctx={ctx} />;
     case 'rating':
@@ -98,7 +93,8 @@ function ProvidersCard({ ctx }: { ctx: Ctx }) {
   const { busy, run } = useAction(ctx.onError);
   const { request, providers } = ctx.detail;
   const editable = request.status === 'escolhendo';
-  if (!editable && !ctx.isLatest('providers')) return null;
+  // depois de pedir os orçamentos, a lista de andamento mostra os mesmos nomes com a situação de cada um
+  if (!editable && (!ctx.isLatest('providers') || ctx.detail.messages.some((m) => m.card?.kind === 'progress'))) return null;
   const list = providers.filter((p) => editable || p.status !== 'excluido');
   const selected = providers.filter((p) => p.selected).length;
   if (!list.length) return null;
@@ -239,19 +235,17 @@ function QuoteCard({ rpId, ctx }: { rpId: number; ctx: Ctx }) {
   );
 }
 
-function DecisionCard({ rpId, pergunta, ctx }: { rpId: number; pergunta: string; ctx: Ctx }) {
+function DecisionCard({ rpId, ctx }: { rpId: number; ctx: Ctx }) {
   const { busy, run } = useAction(ctx.onError);
   const [text, setText] = useState('');
   const [sent, setSent] = useState(false);
   const p = ctx.detail.providers.find((x) => x.id === rpId);
-  if (sent) return null;
+  // conversa com esse profissional já acabou (fechou com outro, recusou, não respondeu): não tem mais o que responder
+  const over = !p || ['dispensado', 'recusou', 'recusado_pelo_usuario', 'sem_resposta', 'fechado'].includes(p.status);
+  if (sent || over) return null;
   return (
     <div className="card glass">
       <div className="card-body">
-        <span className="tag">{p?.name ?? 'Profissional'} perguntou</span>
-        <p className="quote-text" style={{ color: 'var(--ink)' }}>
-          {pergunta}
-        </p>
         <form
           className="inline-input"
           onSubmit={(e) => {
@@ -265,9 +259,9 @@ function DecisionCard({ rpId, pergunta, ctx }: { rpId: number; pergunta: string;
           }}
         >
           <label className="sr-only" htmlFor={`decision-${rpId}`}>
-            Tua resposta
+            Tua resposta para {p?.name ?? 'o profissional'}
           </label>
-          <input id={`decision-${rpId}`} value={text} placeholder="Tua resposta" onChange={(e) => setText(e.target.value)} />
+          <input id={`decision-${rpId}`} value={text} placeholder={`Tua resposta pra ${p?.name.split(/\s+/)[0] ?? 'o profissional'}`} onChange={(e) => setText(e.target.value)} />
           <button type="submit" className="btn dark" disabled={busy || !text.trim()}>
             Responder
           </button>
@@ -277,28 +271,19 @@ function DecisionCard({ rpId, pergunta, ctx }: { rpId: number; pergunta: string;
   );
 }
 
-function PausedCard({ rpId, ctx }: { rpId: number; ctx: Ctx }) {
-  const { busy, run } = useAction(ctx.onError);
-  const p = ctx.detail.providers.find((x) => x.id === rpId);
-  if (!p || p.status !== 'pausado') return null;
-  // V2: quem assume é a equipe do Desenrola (admin); o cliente só vê o aviso
-  return (
-    <div className="actions">
-      <button type="button" className="btn" disabled={busy} onClick={() => run(() => api.resume(ctx.detail.request.id, rpId))}>
-        Retomar com {p.name}
-      </button>
-    </div>
-  );
-}
-
 function RatingCard({ providerId, providerName, ctx }: { providerId: number; providerName: string; ctx: Ctx }) {
   const { busy, run } = useAction(ctx.onError);
   const [stars, setStars] = useState(0);
   const [comment, setComment] = useState('');
   const [done, setDone] = useState<boolean | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  // as estrelas abrem embaixo, atrás da caixa de mensagem: desce a conversa junto
+  useEffect(() => {
+    if (done !== null) box.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [done]);
   if (ctx.detail.request.status === 'avaliado') return <p className="msg-event">Avaliação registrada. Obrigado.</p>;
   return (
-    <div className="card glass">
+    <div className="card glass" ref={box}>
       <div className="card-body">
         <div className="actions">
           <button type="button" className={`btn${done === true ? ' dark' : ''}`} onClick={() => setDone(true)}>

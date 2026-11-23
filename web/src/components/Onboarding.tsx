@@ -6,7 +6,7 @@ import { ComboInput, NeighborhoodInput } from './fields';
 /** Primeira vez: nome e lugar numa tela só. Sem gastar crédito da API. */
 export function Onboarding({ initial, onDone }: { initial: Record<string, string>; onDone: () => void }) {
   const [name, setName] = useState(initial.user_name ?? '');
-  const [city, setCity] = useState(initial.user_city || 'Porto Alegre');
+  const [city, setCity] = useState(initial.user_city ?? '');
   const [hood, setHood] = useState(initial.user_neighborhood ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

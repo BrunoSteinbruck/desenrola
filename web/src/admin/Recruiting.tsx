@@ -95,7 +95,7 @@ export function RecruitingTab({ onPromoted, notify, serviceOptions }: { onPromot
               <tbody>
                 {data.demand.map((d) => (
                   <tr key={`${d.category}|${d.city}`} className={`clickable${category === d.category ? ' selected' : ''}`} onClick={() => setCategory(category === d.category ? '' : d.category)}>
-                    <td className="cell-num cell-strong">{d.n}</td>
+                    <td className="cell-num cell-strong" data-label="Pedidos">{d.n}</td>
                     <td data-cell="main">
                       <button type="button" className="cell-title" aria-pressed={category === d.category}>
                         {d.category}
@@ -105,8 +105,8 @@ export function RecruitingTab({ onPromoted, notify, serviceOptions }: { onPromot
                       {d.city}
                       {d.neighborhoods.length ? `: ${d.neighborhoods.join(', ')}` : ''}
                     </td>
-                    <td className="cell-num">{d.registered}</td>
-                    <td className="cell-num">{d.leads}</td>
+                    <td className="cell-num" data-label="Cadastrados">{d.registered}</td>
+                    <td className="cell-num" data-label="Contatos">{d.leads}</td>
                   </tr>
                 ))}
               </tbody>
